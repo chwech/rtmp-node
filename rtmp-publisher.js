@@ -3,7 +3,7 @@ const { URL } = require('url');
 const Client = require('rtmp-client/lib/Client');
 const NetConnection = require('rtmp-client/lib/NetConnection');
 const { CLIENT } = require('rtmp-client/lib/Symbols');
-const { SET_CHUNK_SIZE, WINDOW_ACKNOWLEDGEMENT_SIZE, SET_PEER_BANDWIDTH, ACKNOWLEDGEMENT, DATA_MESSAGE_AMF0, VIDEO_MESSAGE } = require('rtmp-client/lib/MessageTypes');
+const { SET_CHUNK_SIZE, WINDOW_ACKNOWLEDGEMENT_SIZE, SET_PEER_BANDWIDTH, ACKNOWLEDGEMENT, DATA_MESSAGE_AMF0, VIDEO_MESSAGE, AUDIO_MESSAGE } = require('rtmp-client/lib/MessageTypes');
 const { toAMF } = require('amf-codec');
 
 /**
@@ -111,10 +111,13 @@ class RTMPPublisher extends EventEmitter {
 
         // 监听控制消息
         if (this.client.controlStream) {
+            console.log('设置 controlStream 监听器');
             this.client.controlStream.on('control', (messageTypeId, value, limitType) => {
                 console.log('收到控制消息:', { messageTypeId, value, limitType });
                 this.handleControlMessage(messageTypeId, value, limitType);
             });
+        } else {
+            console.log('警告: controlStream 不可用');
         }
 
         this.client.on('command', (name, transactionId, command, ...args) => {
@@ -191,9 +194,9 @@ class RTMPPublisher extends EventEmitter {
                 });
             }
 
-            // 步骤7: 设置Chunk Size
-            console.log('步骤7: 设置Chunk Size为4096字节');
-            this.setChunkSize(this.chunkSize);
+            // 步骤7: 发送 Set Chunk Size (必须发送，ffmpeg 也发送了)
+            console.log('步骤7: 发送 Set Chunk Size (128字节)');
+            this.setChunkSize(128);
 
             // 等待一小段时间，让服务器可能发送的控制消息先到达
             await new Promise(resolve => setTimeout(resolve, 200));
@@ -277,16 +280,18 @@ class RTMPPublisher extends EventEmitter {
 
     /**
      * 步骤10: 发送releaseStream命令
+     * 使用 command 而不是 invoke，因为 releaseStream 通常不需要响应
      */
     sendReleaseStream(streamName) {
-        return this.client.invoke('releaseStream', null, null, streamName)
+        this.client.command('releaseStream', 0, null, streamName);
     }
 
     /**
      * 步骤11: 发送FCPublish命令
+     * 使用 command 而不是 invoke，因为 FCPublish 通常不需要响应
      */
     sendFCPublish(streamName) {
-        return this.client.invoke('FCPublish', null, null, streamName)
+        this.client.command('FCPublish', 0, null, streamName);
     }
 
     /**
@@ -364,30 +369,237 @@ class RTMPPublisher extends EventEmitter {
     }
 
     /**
-     * 发送测试视频帧
+     * 发送 AVC 序列头（H.264 解码配置信息）
+     * 包含 SPS 和 PPS，必须在发送视频帧之前发送
      */
-    sendTestVideoFrame() {
+    sendAVCSequenceHeader() {
         if (!this.publishStream) {
             throw new Error('publishStream不可用');
         }
 
-        // 创建一个简单的测试视频帧
-        // H.264视频帧格式: [frame type (4 bits) | codec id (4 bits)] + NAL unit
-        // 这里发送一个简单的测试帧
-        const frameType = 1; // Non-keyframe
-        const codecId = 7; // H.264
-        const frameHeader = Buffer.from([(frameType << 4) | codecId]);
+        // AVC Sequence Header 格式:
+        // [FrameType(4bits) + CodecID(4bits)] + [AVCPacketType] + [CompositionTime(3bytes)] + [AVCDecoderConfigurationRecord]
+        
+        // 简单的 SPS (Sequence Parameter Set) - 640x480 baseline profile
+        const sps = Buffer.from([
+            0x67, 0x42, 0x00, 0x1e, 0x96, 0x52, 0x02, 0x83, 0xf6, 0x02, 0xa1, 0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x00, 0x03, 0x00, 0x30, 0x8f, 0x16, 0x2e, 0x48
+        ]);
+        
+        // 简单的 PPS (Picture Parameter Set)
+        const pps = Buffer.from([0x68, 0xce, 0x06, 0xe2]);
 
-        // 创建一个简单的测试NAL单元（空帧，仅用于测试）
-        // 实际应用中，这里应该是真实的H.264编码数据
-        const testFrame = Buffer.concat([
-            frameHeader,
-            Buffer.from([0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x0a, 0xe8, 0x40]) // 简单的测试数据
+        // AVCDecoderConfigurationRecord
+        const avcConfig = Buffer.concat([
+            Buffer.from([
+                0x01,             // configurationVersion
+                sps[1],           // AVCProfileIndication
+                sps[2],           // profile_compatibility
+                sps[3],           // AVCLevelIndication
+                0xff,             // lengthSizeMinusOne (4 bytes NAL length)
+                0xe1,             // numOfSequenceParameterSets (1)
+            ]),
+            Buffer.from([(sps.length >> 8) & 0xff, sps.length & 0xff]), // SPS length
+            sps,
+            Buffer.from([0x01]), // numOfPictureParameterSets (1)
+            Buffer.from([(pps.length >> 8) & 0xff, pps.length & 0xff]), // PPS length
+            pps
         ]);
 
-        this.publishStream.send(VIDEO_MESSAGE, testFrame);
-        this.timestamp += 33; // 假设30fps，每帧约33ms
-        console.log(`已发送测试视频帧，时间戳: ${this.timestamp}`);
+        // FLV Video Tag 格式
+        const videoTag = Buffer.concat([
+            Buffer.from([
+                0x17,             // FrameType=1(keyframe) + CodecID=7(AVC)
+                0x00,             // AVCPacketType=0 (AVC sequence header)
+                0x00, 0x00, 0x00  // CompositionTime=0
+            ]),
+            avcConfig
+        ]);
+
+        this.publishStream.send(VIDEO_MESSAGE, videoTag);
+        console.log('已发送 AVC 序列头');
+    }
+
+    /**
+     * 发送测试视频帧
+     * @param {boolean} isKeyframe - 是否为关键帧
+     */
+    sendTestVideoFrame(isKeyframe = false) {
+        if (!this.publishStream) {
+            throw new Error('publishStream不可用');
+        }
+
+        // 每隔30帧发送一个关键帧
+        if (this.timestamp % 1000 < 33) {
+            isKeyframe = true;
+        }
+
+        // FLV Video Tag 格式:
+        // [FrameType(4bits) + CodecID(4bits)] + [AVCPacketType] + [CompositionTime(3bytes)] + [NAL Unit Data]
+        
+        const frameType = isKeyframe ? 1 : 2; // 1=keyframe, 2=inter frame
+        const codecId = 7; // AVC (H.264)
+
+        // 创建一个简单的 NAL 单元
+        // IDR slice (keyframe) 或 Non-IDR slice (P-frame)
+        const nalType = isKeyframe ? 0x65 : 0x41; // 5=IDR, 1=non-IDR
+        const nalData = Buffer.from([
+            nalType,
+            0x88, 0x84, 0x00, 0x33, 0xff  // 简化的slice数据
+        ]);
+
+        // NAL Unit Length (4 bytes, big-endian)
+        const nalLength = Buffer.allocUnsafe(4);
+        nalLength.writeUInt32BE(nalData.length, 0);
+
+        const videoTag = Buffer.concat([
+            Buffer.from([
+                (frameType << 4) | codecId, // FrameType + CodecID
+                0x01,                        // AVCPacketType=1 (AVC NALU)
+                0x00, 0x00, 0x00             // CompositionTime=0
+            ]),
+            nalLength,
+            nalData
+        ]);
+
+        this.publishStream.send(VIDEO_MESSAGE, videoTag);
+        this.timestamp += 33;
+    }
+
+    /**
+     * 发送真实视频帧（从 MP4 提取的 NAL 单元）
+     * @param {Buffer} nalUnit - NAL 单元数据
+     * @param {boolean} isKeyframe - 是否为关键帧
+     * @param {number} compositionTime - 组合时间偏移
+     */
+    sendVideoFrame(nalUnit, isKeyframe = false, compositionTime = 0) {
+        if (!this.publishStream) {
+            throw new Error('publishStream不可用');
+        }
+
+        const frameType = isKeyframe ? 1 : 2;
+        const codecId = 7; // AVC (H.264)
+
+        // NAL Unit Length (4 bytes, big-endian)
+        const nalLength = Buffer.allocUnsafe(4);
+        nalLength.writeUInt32BE(nalUnit.length, 0);
+
+        // 组合时间偏移 (3 bytes, big-endian, signed)
+        const ctsBuf = Buffer.allocUnsafe(3);
+        ctsBuf.writeUIntBE(compositionTime & 0xffffff, 0, 3);
+
+        const videoTag = Buffer.concat([
+            Buffer.from([
+                (frameType << 4) | codecId,
+                0x01  // AVCPacketType=1 (AVC NALU)
+            ]),
+            ctsBuf,
+            nalLength,
+            nalUnit
+        ]);
+
+        this.publishStream.send(VIDEO_MESSAGE, videoTag);
+        this.timestamp += Math.round(1000 / 30);
+    }
+
+    /**
+     * 发送 AVC 序列头（从 MP4 提取的配置）
+     * @param {Buffer} avcConfig - AVCDecoderConfigurationRecord
+     */
+    sendAVCConfig(avcConfig) {
+        if (!this.publishStream) {
+            throw new Error('publishStream不可用');
+        }
+
+        const videoTag = Buffer.concat([
+            Buffer.from([
+                0x17,             // FrameType=1(keyframe) + CodecID=7(AVC)
+                0x00,             // AVCPacketType=0 (AVC sequence header)
+                0x00, 0x00, 0x00  // CompositionTime=0
+            ]),
+            avcConfig
+        ]);
+
+        this.publishStream.send(VIDEO_MESSAGE, videoTag, 0);
+        console.log('已发送 AVC 配置');
+    }
+
+    /**
+     * 发送自定义元数据
+     * @param {object} metadata - 元数据对象
+     */
+    sendCustomMetaData(metadata) {
+        if (!this.publishStream) {
+            throw new Error('publishStream不可用');
+        }
+
+        const fullMetadata = {
+            '@setDataFrame': 'onMetaData',
+            ...metadata,
+            encoder: 'RTMP Publisher'
+        };
+
+        const metadataBuffer = Buffer.concat([
+            toAMF('@setDataFrame'),
+            toAMF('onMetaData'),
+            toAMF(fullMetadata)
+        ]);
+
+        this.publishStream.send(DATA_MESSAGE_AMF0, metadataBuffer, 0);
+        console.log('已发送自定义元数据');
+    }
+
+    /**
+     * 发送 AAC 音频序列头
+     * @param {number} header - 音频头部字节
+     * @param {Buffer} config - AudioSpecificConfig
+     */
+    sendAudioSequenceHeader(header, config) {
+        if (!this.publishStream) {
+            throw new Error('publishStream不可用');
+        }
+
+        const audioTag = Buffer.concat([
+            Buffer.from([header]),      // 音频头
+            Buffer.from([0x00]),        // AAC Packet Type = 0 (sequence header)
+            config                       // AudioSpecificConfig
+        ]);
+
+        this.publishStream.send(AUDIO_MESSAGE, audioTag, 0);
+        console.log('已发送 AAC 序列头');
+    }
+
+    /**
+     * 发送 AAC 音频帧
+     * @param {number} header - 音频头部字节
+     * @param {Buffer} data - AAC 音频数据
+     * @param {number} timestamp - 时间戳（毫秒）
+     */
+    sendAudioFrame(header, data, timestamp = 0) {
+        if (!this.publishStream) {
+            throw new Error('publishStream不可用');
+        }
+
+        const audioTag = Buffer.concat([
+            Buffer.from([header]),      // 音频头
+            Buffer.from([0x01]),        // AAC Packet Type = 1 (raw data)
+            data                         // AAC 原始数据
+        ]);
+
+        this.publishStream.send(AUDIO_MESSAGE, audioTag, timestamp);
+    }
+
+    /**
+     * 发送 FLV 格式的视频帧（已封装好的）
+     * @param {Buffer} data - 完整的 FLV 视频标签数据（不含标签头）
+     * @param {boolean} isKeyframe - 是否为关键帧
+     * @param {number} timestamp - 时间戳（毫秒）
+     */
+    sendFLVVideoFrame(data, isKeyframe = false, timestamp = 0) {
+        if (!this.publishStream) {
+            throw new Error('publishStream不可用');
+        }
+
+        this.publishStream.send(VIDEO_MESSAGE, data, timestamp);
     }
 
     /**

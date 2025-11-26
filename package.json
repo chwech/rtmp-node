@@ -1,5 +1,11 @@
 {
   "dependencies": {
+    "amf-codec": "^1.4.0",
     "rtmp-client": "^1.6.3"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "rtmp-client": "patches/rtmp-client.patch"
+    }
   }
 }

@@ -1,0 +1,30 @@
+diff --git a/lib/NetConnection.js b/lib/NetConnection.js
+index 3e4be6f259b004c39bce8aca091a167270df0a67..df865f5b5362e7ec042e05da87b69dcbbf3e4ca4 100644
+--- a/lib/NetConnection.js
++++ b/lib/NetConnection.js
+@@ -60,12 +60,13 @@ class NetConnection {
+ 			return false;
+ 		}
+ 		
+-		const [, application, instance] = pathname.split('/');
++		const [, application] = pathname.split('/');
+ 		if (!application) {
+ 			return false;
+ 		}
+ 		
+-		const app = `${application}${instance ? '/' : ''}${instance || ''}`;
++		// app 只取第一段，不包含 stream name
++		const app = application;
+ 		const tcUrl = `${protocol}//${hostname}:${port}/${app}${search}`;
+ 		
+ 		const client = new Client(hostname, port);
+@@ -172,7 +173,8 @@ class NetConnection {
+ 			
+ 			this.isConnected = true;
+ 			this.uri = uri;
+-			this[PING_PONG].start(client);
++			// 禁用自动 PingPong，按照 ffmpeg 的行为，不主动发送 ping
++			// this[PING_PONG].start(client);
+ 			
+ 			for (const name of [...new Set(this[SHAREDOBJECT])]) {
+ 				client.useSharedObject(name);

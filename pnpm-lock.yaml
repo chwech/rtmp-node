@@ -1,0 +1,37 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+patchedDependencies:
+  rtmp-client:
+    hash: h3vir2jrandznrjfopoyhe2aoi
+    path: patches/rtmp-client.patch
+
+importers:
+
+  .:
+    dependencies:
+      amf-codec:
+        specifier: ^1.4.0
+        version: 1.4.0
+      rtmp-client:
+        specifier: ^1.6.3
+        version: 1.6.3(patch_hash=h3vir2jrandznrjfopoyhe2aoi)
+
+packages:
+
+  amf-codec@1.4.0:
+    resolution: {integrity: sha512-VtdJcQJp0pSo2K6HS1rPnmRoy3h7xdTIS/ymOUMKEoLWcJSDFLOf9x9kxhnHtWrVVBYDP7Ux+3khECSJ5DhmMw==}
+
+  rtmp-client@1.6.3:
+    resolution: {integrity: sha512-nZGSeHeWwEa7WOrSTsFKY3C25w3sPLyC5uAabD5TYIjgImS98YsDWEwK1JubXO+HzLWqA+GTG1UDhg4aIMIbkw==}
+
+snapshots:
+
+  amf-codec@1.4.0: {}
+
+  rtmp-client@1.6.3(patch_hash=h3vir2jrandznrjfopoyhe2aoi):
+    dependencies:
+      amf-codec: 1.4.0
