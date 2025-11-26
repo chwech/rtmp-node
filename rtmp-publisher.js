@@ -251,9 +251,6 @@ class RTMPPublisher extends EventEmitter {
             // 步骤14: 等待服务器响应onStatus (NetStream.Publish.Start)
             // 这个响应会通过handleCommand方法处理
             console.log('等待服务器响应publish状态...');
-
-            
-            this.startSendingTestVideo(5, 30);
         } catch (error) {
             this.emit('error', error);
             throw error;
@@ -493,6 +490,9 @@ class RTMPPublisher extends EventEmitter {
                 if (statusInfo.level === 'error' || statusInfo.code && statusInfo.code.includes('Failed')) {
                     console.error('收到错误状态:', statusInfo);
                     this.emit('error', new Error(statusInfo.description || statusInfo.code));
+                }
+                if (statusInfo.code === 'NetStream.Publish.Start') {
+                    this.emit('publishStart', statusInfo);
                 }
                 this.emit('status', statusInfo);
             }

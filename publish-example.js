@@ -1,4 +1,5 @@
 const RTMPPublisher = require('./rtmp-publisher');
+const PingPong = require('rtmp-client/lib/PingPong');
 
 /**
  * RTMP推流示例
@@ -14,6 +15,8 @@ async function main() {
 
   const publisher = new RTMPPublisher();
 
+  let pingPong = null;
+
   // 监听事件
   publisher.on('publishStart', (statusInfo) => {
     console.log('\n✅ 推流成功启动！');
@@ -27,13 +30,10 @@ async function main() {
     console.log('11-12: FCPublish和createStream');
     console.log('13-14: publish命令和onStatus响应');
     
-    // 开始发送测试视频数据
-    console.log('\n开始发送测试视频数据...');
-    try {
-      publisher.startSendingTestVideo(5, 30); // 发送5秒，30fps
-    } catch (error) {
-      console.error('发送测试视频数据失败:', error);
-    }
+    // 启动 PingPong 保活机制
+    pingPong = new PingPong(30000, 10000);
+    pingPong.start(publisher.client);
+    console.log('\n✅ PingPong 保活机制已启动（每30秒ping一次）');
   });
 
   publisher.on('status', (statusInfo) => {
@@ -46,6 +46,10 @@ async function main() {
 
   publisher.on('close', (err) => {
     console.log('连接已关闭', err ? err.message : '');
+    if (pingPong) {
+      pingPong.stop();
+      console.log('PingPong 已停止');
+    }
   });
 
   try {
@@ -59,10 +63,10 @@ async function main() {
       flashVer: 'FMLE/3.0 (compatible; FMSc/1.0)',
       publishType: 'live'
     });
-    
 
-    // 保持连接，等待publishStart事件
-    // 在实际应用中，这里可以开始发送音视频数据
+    // 保持程序运行，等待事件处理
+    console.log('\n程序保持运行中，按 Ctrl+C 退出...');
+    await new Promise(() => {});
     
   } catch (error) {
     console.error('推流失败:', error);
