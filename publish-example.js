@@ -8,8 +8,9 @@ const path = require('path');
  */
 async function main() {
   // RTMP 推流地址
-  const rtmpUrl = 'rtmp://36.212.31.8/live/test-noapp-1764215133';
-  
+  // const rtmpUrl = 'rtmp://36.212.31.8/live/test-stream';
+  const rtmpUrl = 'rtmp://push-rtmp-cold-f5.douyincdn.com/stage/stream-118395534362018645?arch_hrchy=c1&exp_hrchy=c1&expire=1764839143&sign=623f878ca4615b69af296a7555b04005&t_id=037-2025112717054348C46ACA85B72BB2F87E-Ekp7tf&volcSecret=623f878ca4615b69af296a7555b04005&volcTime=1764839143'
+
   // MP4 文件路径
   const mp4File = path.join(__dirname, 'demo-1080p.mp4');
 
@@ -100,16 +101,22 @@ async function main() {
     // 发送元数据
     console.log('\n发送元数据...');
     try {
-      const metadata = mp4Reader.getMetadata();
-      publisher.sendCustomMetaData(metadata);
+      // setInterval(() => {
+        // publisher.sendMetaData();
+
+        const metadata = mp4Reader.getMetadata();
+        publisher.sendCustomMetaData(metadata);
+      // }, 1000)
     } catch (error) {
       console.error('发送元数据失败:', error);
     }
 
+
+
     // 开始读取 MP4 文件并推流
-    console.log('\n开始读取 MP4 文件并推流（包含音频和视频）...');
-    console.log('文件:', mp4File);
-    mp4Reader.start(true); // true = 循环播放
+    // console.log('\n开始读取 MP4 文件并推流（包含音频和视频）...');
+    // console.log('文件:', mp4File);
+    // mp4Reader.start(true); // true = 循环播放
   });
 
   publisher.on('status', (statusInfo) => {

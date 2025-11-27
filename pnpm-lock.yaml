@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   rtmp-client:
-    hash: lbzhj2ll7rrodpxm7ldeqky4xy
+    hash: gxxykrsyzadly2ygvtv6eh2ode
     path: patches/rtmp-client.patch
 
 importers:
@@ -18,7 +18,7 @@ importers:
         version: 1.4.0
       rtmp-client:
         specifier: ^1.6.3
-        version: 1.6.3(patch_hash=lbzhj2ll7rrodpxm7ldeqky4xy)
+        version: 1.6.3(patch_hash=gxxykrsyzadly2ygvtv6eh2ode)
 
 packages:
 
@@ -32,6 +32,6 @@ snapshots:
 
   amf-codec@1.4.0: {}
 
-  rtmp-client@1.6.3(patch_hash=lbzhj2ll7rrodpxm7ldeqky4xy):
+  rtmp-client@1.6.3(patch_hash=gxxykrsyzadly2ygvtv6eh2ode):
     dependencies:
       amf-codec: 1.4.0

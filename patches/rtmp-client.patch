@@ -1,8 +1,8 @@
 diff --git a/lib/NetConnection.js b/lib/NetConnection.js
-index 3e4be6f259b004c39bce8aca091a167270df0a67..df865f5b5362e7ec042e05da87b69dcbbf3e4ca4 100644
+index 3e4be6f259b004c39bce8aca091a167270df0a67..2716919a489146fe16db5cdeba7c5a910a90f95d 100644
 --- a/lib/NetConnection.js
 +++ b/lib/NetConnection.js
-@@ -60,12 +60,13 @@ class NetConnection {
+@@ -60,13 +60,15 @@ class NetConnection {
  			return false;
  		}
  		
@@ -13,18 +13,30 @@ index 3e4be6f259b004c39bce8aca091a167270df0a67..df865f5b5362e7ec042e05da87b69dcb
  		}
  		
 -		const app = `${application}${instance ? '/' : ''}${instance || ''}`;
-+		// app 只取第一段，不包含 stream name
+-		const tcUrl = `${protocol}//${hostname}:${port}/${app}${search}`;
++		// app 只取第一段
 +		const app = application;
- 		const tcUrl = `${protocol}//${hostname}:${port}/${app}${search}`;
++		// tcUrl 不包含查询参数（与 ffmpeg 行为一致）
++		const tcUrl = `${protocol}//${hostname}:${port}/${app}`;
  		
  		const client = new Client(hostname, port);
-@@ -172,7 +173,8 @@ class NetConnection {
+ 		this[CLIENT] = client;
+@@ -160,8 +162,9 @@ class NetConnection {
+ 		try {
+ 			const [, response] = await client.invoke('connect', null, {
+ 				app,
++				'type': 'nonprivate',
+ 				tcUrl,
+-				'flashVer': 'WIN 32,0,0,465',
++				'flashVer': 'FMLE/3.0 (compatible; FMSc/1.0)',
+ 				'fpad': false,
+ 				'capabilities': 15,
+ 				'audioCodecs': 3191,
+@@ -172,6 +175,7 @@ class NetConnection {
  			
  			this.isConnected = true;
  			this.uri = uri;
--			this[PING_PONG].start(client);
-+			// 禁用自动 PingPong
-+			// this[PING_PONG].start(client);
++			// 启用 PingPong 保活
+ 			this[PING_PONG].start(client);
  			
  			for (const name of [...new Set(this[SHAREDOBJECT])]) {
- 				client.useSharedObject(name);

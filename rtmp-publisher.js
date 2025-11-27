@@ -331,6 +331,7 @@ class RTMPPublisher extends EventEmitter {
 
         // 发送publish命令
         // publish命令格式: command name, transaction ID, command object (null), stream name, publish type
+        console.log(`发送 publish 命令: streamName=${streamName.substring(0, 50)}..., publishType=${publishType}`);
         this.publishStream.command('publish', transactionId, null, streamName, publishType);
     }
 
