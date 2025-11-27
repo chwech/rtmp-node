@@ -23,7 +23,7 @@ index 3e4be6f259b004c39bce8aca091a167270df0a67..df865f5b5362e7ec042e05da87b69dcb
  			this.isConnected = true;
  			this.uri = uri;
 -			this[PING_PONG].start(client);
-+			// 禁用自动 PingPong，按照 ffmpeg 的行为，不主动发送 ping
++			// 禁用自动 PingPong
 +			// this[PING_PONG].start(client);
  			
  			for (const name of [...new Set(this[SHAREDOBJECT])]) {

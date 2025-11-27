@@ -8,7 +8,7 @@ const path = require('path');
  */
 async function main() {
   // RTMP 推流地址
-  const rtmpUrl = 'rtmp://36.212.31.8/live/test-stream';
+  const rtmpUrl = 'rtmp://36.212.31.8/live/test-noapp-1764215133';
   
   // MP4 文件路径
   const mp4File = path.join(__dirname, 'demo-1080p.mp4');
@@ -107,9 +107,9 @@ async function main() {
     }
 
     // 开始读取 MP4 文件并推流
-    // console.log('\n开始读取 MP4 文件并推流（包含音频和视频）...');
-    // console.log('文件:', mp4File);
-    // mp4Reader.start(true); // true = 循环播放
+    console.log('\n开始读取 MP4 文件并推流（包含音频和视频）...');
+    console.log('文件:', mp4File);
+    mp4Reader.start(true); // true = 循环播放
   });
 
   publisher.on('status', (statusInfo) => {
