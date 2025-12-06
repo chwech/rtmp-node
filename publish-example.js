@@ -2,6 +2,9 @@ const RTMPPublisher = require('./rtmp-publisher');
 const MP4Reader = require('./mp4-reader');
 const path = require('path');
 
+// 全局变量，用于 SIGINT 处理
+let globalPublisher = null;
+
 /**
  * RTMP推流示例
  * 循环读取 MP4 文件并推流（包含音频和视频）
@@ -9,12 +12,14 @@ const path = require('path');
 async function main() {
   // RTMP 推流地址
   // const rtmpUrl = 'rtmp://36.212.31.8/live/test-stream';
-  const rtmpUrl = 'rtmp://push-rtmp-cold-f5.douyincdn.com/stage/stream-118395534362018645?arch_hrchy=c1&exp_hrchy=c1&expire=1764839143&sign=623f878ca4615b69af296a7555b04005&t_id=037-2025112717054348C46ACA85B72BB2F87E-Ekp7tf&volcSecret=623f878ca4615b69af296a7555b04005&volcTime=1764839143'
+  // const rtmpUrl = 'rtmp://push-rtmp-cold-f5.douyincdn.com/stage/stream-118395534362018645?arch_hrchy=c1&exp_hrchy=c1&expire=1764839143&sign=623f878ca4615b69af296a7555b04005&t_id=037-2025112717054348C46ACA85B72BB2F87E-Ekp7tf&volcSecret=623f878ca4615b69af296a7555b04005&volcTime=1764839143'
 
+  const rtmpUrl = 'rtmp://push-rtmp-cold-f5.douyincdn.com/stage/stream-406678100466991957?arch_hrchy=c1&exp_hrchy=c1&expire=1765613452&sign=8b408b55425d256bf90e4a69a79eea6b&t_id=037-20251206161052570A005216B65EF2A0F0-1rxxP3&volcSecret=8b408b55425d256bf90e4a69a79eea6b&volcTime=1765613452'
   // MP4 文件路径
   const mp4File = path.join(__dirname, 'demo-1080p.mp4');
 
   const publisher = new RTMPPublisher();
+  globalPublisher = publisher; // 保存到全局变量
   const mp4Reader = new MP4Reader(mp4File);
   
   let videoFrameCount = 0;
@@ -98,25 +103,28 @@ async function main() {
     // 注意：按照 ffmpeg 的行为，不主动发送 WindowAckSize 和 PingPong
     // 服务器会在需要时发送 ping，客户端会自动响应 pong
 
-    // 发送元数据
-    console.log('\n发送元数据...');
-    try {
-      // setInterval(() => {
-        // publisher.sendMetaData();
+    // 选择推流模式：随机数据 或 MP4文件
+    const useRandomData = true; // 设为 true 使用随机数据，false 使用 MP4 文件
 
+    if (useRandomData) {
+      // 推送随机音视频数据（与 Python rtmp_connector.py 相同的逻辑）
+      console.log('\n开始推送随机音视频数据（与 Python 相同的逻辑）...');
+      publisher.startRandomStreaming();
+    } else {
+      // 发送元数据
+      console.log('\n发送元数据...');
+      try {
         const metadata = mp4Reader.getMetadata();
         publisher.sendCustomMetaData(metadata);
-      // }, 1000)
-    } catch (error) {
-      console.error('发送元数据失败:', error);
+      } catch (error) {
+        console.error('发送元数据失败:', error);
+      }
+
+      // 开始读取 MP4 文件并推流
+      console.log('\n开始读取 MP4 文件并推流（包含音频和视频）...');
+      console.log('文件:', mp4File);
+      mp4Reader.start(true); // true = 循环播放
     }
-
-
-
-    // 开始读取 MP4 文件并推流
-    // console.log('\n开始读取 MP4 文件并推流（包含音频和视频）...');
-    // console.log('文件:', mp4File);
-    // mp4Reader.start(true); // true = 循环播放
   });
 
   publisher.on('status', (statusInfo) => {
@@ -130,6 +138,7 @@ async function main() {
   publisher.on('close', (err) => {
     console.log('连接已关闭', err ? err.message : '');
     mp4Reader.stop();
+    publisher.stopRandomStreaming();
   });
 
   try {
@@ -159,6 +168,10 @@ async function main() {
 // 处理程序退出
 process.on('SIGINT', () => {
   console.log('\n正在关闭连接...');
+  // 停止随机推流
+  if (globalPublisher && globalPublisher.stopRandomStreaming) {
+    globalPublisher.stopRandomStreaming();
+  }
   process.exit(0);
 });
 

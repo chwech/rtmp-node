@@ -23,6 +23,12 @@ class RTMPPublisher extends EventEmitter {
         this.transactionId = 2;
         this.chunkSize = 4096;
         this.timestamp = 0; // 用于视频帧的时间戳
+        
+        // 帧发送状态跟踪（与 Python rtmp_connector.py 相同的逻辑）
+        this.audioSent = false;  // 是否已发送过音频帧
+        this.videoSent = false;  // 是否已发送过视频帧
+        this.lastAudioTimestamp = 0;  // 上一个音频帧的时间戳
+        this.lastVideoTimestamp = 0;  // 上一个视频帧的时间戳
     }
 
     /**
@@ -571,6 +577,9 @@ class RTMPPublisher extends EventEmitter {
 
     /**
      * 发送 AAC 音频帧
+     * 使用与 Python rtmp_connector.py 相同的逻辑：
+     * - 第一帧使用 timestamp=0
+     * - 后续帧使用 timestamp=delta（时间戳增量）
      * @param {number} header - 音频头部字节
      * @param {Buffer} data - AAC 音频数据
      * @param {number} timestamp - 时间戳（毫秒）
@@ -586,11 +595,28 @@ class RTMPPublisher extends EventEmitter {
             data                         // AAC 原始数据
         ]);
 
-        this.publishStream.send(AUDIO_MESSAGE, audioTag, timestamp);
+        // 与 Python rtmp_connector.py 相同的逻辑：
+        // 第一帧使用 timestamp=0，后续帧使用 delta
+        let actualTimestamp;
+        if (!this.audioSent) {
+            actualTimestamp = 0;
+            this.audioSent = true;
+            this.lastAudioTimestamp = timestamp;
+        } else {
+            // 计算时间戳增量
+            actualTimestamp = timestamp - this.lastAudioTimestamp;
+            if (actualTimestamp < 0) actualTimestamp = 0;
+            this.lastAudioTimestamp = timestamp;
+        }
+
+        this.publishStream.send(AUDIO_MESSAGE, audioTag, actualTimestamp);
     }
 
     /**
      * 发送 FLV 格式的视频帧（已封装好的）
+     * 使用与 Python rtmp_connector.py 相同的逻辑：
+     * - 第一帧使用 timestamp=0
+     * - 后续帧使用 timestamp=delta（时间戳增量）
      * @param {Buffer} data - 完整的 FLV 视频标签数据（不含标签头）
      * @param {boolean} isKeyframe - 是否为关键帧
      * @param {number} timestamp - 时间戳（毫秒）
@@ -600,7 +626,161 @@ class RTMPPublisher extends EventEmitter {
             throw new Error('publishStream不可用');
         }
 
-        this.publishStream.send(VIDEO_MESSAGE, data, timestamp);
+        // 与 Python rtmp_connector.py 相同的逻辑：
+        // 第一帧使用 timestamp=0，后续帧使用 delta
+        let actualTimestamp;
+        if (!this.videoSent) {
+            actualTimestamp = 0;
+            this.videoSent = true;
+            this.lastVideoTimestamp = timestamp;
+        } else {
+            // 计算时间戳增量
+            actualTimestamp = timestamp - this.lastVideoTimestamp;
+            if (actualTimestamp < 0) actualTimestamp = 0;
+            this.lastVideoTimestamp = timestamp;
+        }
+
+        this.publishStream.send(VIDEO_MESSAGE, data, actualTimestamp);
+    }
+
+    /**
+     * 发送随机音频数据（与 Python rtmp_connector.py 相同的逻辑）
+     * - Control byte: 0xaf (HE-AAC 44 kHz 16 bit stereo)
+     * - 随机数据：3字节
+     * - 时间戳增量：23ms
+     */
+    sendRandomAudioData() {
+        if (!this.publishStream) {
+            throw new Error('publishStream不可用');
+        }
+
+        // 音频数据格式：Control byte + 音频数据
+        // Control byte: 0xaf (HE-AAC 44 kHz 16 bit stereo)
+        const audioControl = 0xaf;
+        // 随机3字节音频数据
+        const audioData = Buffer.alloc(3);
+        for (let i = 0; i < 3; i++) {
+            audioData[i] = Math.floor(Math.random() * 256);
+        }
+
+        const audioTag = Buffer.concat([
+            Buffer.from([audioControl]),
+            audioData
+        ]);
+
+        // 与 Python 相同的逻辑：第一帧 timestamp=0，后续帧使用 delta
+        let actualTimestamp;
+        if (!this.audioSent) {
+            actualTimestamp = 0;
+            this.audioSent = true;
+            this.lastAudioTimestamp = 0;
+            console.log(`发送第一帧随机音频数据 (timestamp=0, size=${audioTag.length})`);
+        } else {
+            // 时间戳增量：23ms (44.1kHz采样率，每帧约1024样本)
+            actualTimestamp = 23;
+            this.lastAudioTimestamp += 23;
+        }
+
+        this.publishStream.send(AUDIO_MESSAGE, audioTag, actualTimestamp);
+    }
+
+    /**
+     * 发送随机视频数据（与 Python rtmp_connector.py 相同的逻辑）
+     * - Control byte: 0x17 (keyframe) 或 0x27 (interframe)
+     * - 随机数据：100字节
+     * - 时间戳增量：33ms (30fps)
+     */
+    sendRandomVideoData() {
+        if (!this.publishStream) {
+            throw new Error('publishStream不可用');
+        }
+
+        // 视频数据格式：Control byte + 视频数据
+        // 第一帧是关键帧
+        const isKeyframe = !this.videoSent;
+        const videoControl = isKeyframe ? 0x17 : 0x27;
+        
+        // 随机100字节视频数据
+        const videoData = Buffer.alloc(100);
+        for (let i = 0; i < 100; i++) {
+            videoData[i] = Math.floor(Math.random() * 256);
+        }
+
+        const videoTag = Buffer.concat([
+            Buffer.from([videoControl]),
+            videoData
+        ]);
+
+        // 与 Python 相同的逻辑：第一帧 timestamp=0，后续帧使用 delta
+        let actualTimestamp;
+        if (!this.videoSent) {
+            actualTimestamp = 0;
+            this.videoSent = true;
+            this.lastVideoTimestamp = 0;
+            console.log(`发送第一帧随机视频数据 (timestamp=0, keyframe=${isKeyframe}, size=${videoTag.length})`);
+        } else {
+            // 时间戳增量：33ms (30fps)
+            actualTimestamp = 33;
+            this.lastVideoTimestamp += 33;
+        }
+
+        this.publishStream.send(VIDEO_MESSAGE, videoTag, actualTimestamp);
+    }
+
+    /**
+     * 开始推送随机音视频数据（与 Python rtmp_connector.py 相同的逻辑）
+     * 每秒发送一次音视频数据
+     */
+    startRandomStreaming() {
+        if (!this.publishStream) {
+            throw new Error('publishStream不可用，请先完成publish');
+        }
+
+        console.log('开始推送随机音视频数据...');
+        console.log(`Stream ID: ${this.streamId}`);
+
+        // 先发送元数据
+        console.log('发送 onMetaData...');
+        this.sendMetaData();
+        console.log('onMetaData 发送成功，等待1秒后开始推流音视频数据...');
+
+        // 等待1秒后开始推流
+        setTimeout(() => {
+            let frameCount = 0;
+            this._streamingInterval = setInterval(() => {
+                try {
+                    // 发送随机音频数据
+                    this.sendRandomAudioData();
+                    
+                    // 发送随机视频数据
+                    this.sendRandomVideoData();
+                    
+                    frameCount++;
+                    if (frameCount % 10 === 0) {
+                        console.log(`已推流 ${frameCount} 帧`);
+                    }
+                } catch (error) {
+                    console.error('发送音视频数据失败:', error);
+                    this.stopRandomStreaming();
+                }
+            }, 1000); // 每秒发送一次
+        }, 1000);
+    }
+
+    /**
+     * 停止推送随机音视频数据
+     */
+    stopRandomStreaming() {
+        if (this._streamingInterval) {
+            clearInterval(this._streamingInterval);
+            this._streamingInterval = null;
+            console.log('已停止推送随机音视频数据');
+        }
+        // 重置状态
+        this.audioSent = false;
+        this.videoSent = false;
+        this.lastAudioTimestamp = 0;
+        this.lastVideoTimestamp = 0;
     }
 
     /**
