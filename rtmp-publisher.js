@@ -11,7 +11,7 @@ const { toAMF } = require('amf-codec');
  * 实现完整的RTMP建联和推流流程（到第14步：服务器响应publish）
  */
 class RTMPPublisher extends EventEmitter {
-    constructor() {
+    constructor(options = {}) {
         super();
         this.client = null;
         this.netConnection = null;
@@ -29,6 +29,20 @@ class RTMPPublisher extends EventEmitter {
         this.videoSent = false;  // 是否已发送过视频帧
         this.lastAudioTimestamp = 0;  // 上一个音频帧的时间戳
         this.lastVideoTimestamp = 0;  // 上一个视频帧的时间戳
+
+        // 重连配置
+        this.reconnectEnabled = options.reconnect !== false; // 默认启用重连
+        this.maxReconnectAttempts = options.maxReconnectAttempts || 10; // 最大重连次数
+        this.reconnectInterval = options.reconnectInterval || 3000; // 重连间隔（毫秒）
+        this.reconnectAttempts = 0; // 当前重连次数
+        this.isReconnecting = false; // 是否正在重连
+        this.shouldReconnect = true; // 是否应该重连（用于手动关闭时禁用）
+        
+        // 保存连接参数用于重连
+        this._rtmpUrl = null;
+        this._connectOptions = null;
+        this._streamingMode = null; // 'random' 或 'custom'
+        this._customStreamingCallback = null; // 自定义推流回调
     }
 
     /**
@@ -37,6 +51,11 @@ class RTMPPublisher extends EventEmitter {
      * @param {object} options - 可选参数
      */
     connect(rtmpUrl, options = {}) {
+        // 保存连接参数用于重连
+        this._rtmpUrl = rtmpUrl;
+        this._connectOptions = options;
+        this.shouldReconnect = true;
+
         return new Promise((resolve, reject) => {
             const url = new URL(rtmpUrl);
             console.log('url:', url);
@@ -174,6 +193,11 @@ class RTMPPublisher extends EventEmitter {
             }
             this.isConnected = false;
             this.emit('close', err);
+
+            // 触发重连
+            if (this.reconnectEnabled && this.shouldReconnect && !this.isReconnecting) {
+                this._tryReconnect();
+            }
         });
 
         this.client.on('error', (err) => {
@@ -736,6 +760,17 @@ class RTMPPublisher extends EventEmitter {
             throw new Error('publishStream不可用，请先完成publish');
         }
 
+        // 设置推流模式，用于重连后恢复
+        this._streamingMode = 'random';
+
+        // 如果是重连成功，标记重连完成
+        if (this.isReconnecting) {
+            this.isReconnecting = false;
+            this.reconnectAttempts = 0;
+            console.log('重连成功，恢复推流！');
+            this.emit('reconnected');
+        }
+
         console.log('开始推送随机音视频数据...');
         console.log(`Stream ID: ${this.streamId}`);
 
@@ -897,14 +932,140 @@ class RTMPPublisher extends EventEmitter {
     }
 
     /**
-     * 关闭连接
+     * 关闭连接（不触发重连）
      */
     close() {
+        this.shouldReconnect = false; // 手动关闭时禁用重连
+        this.stopRandomStreaming();
         if (this.client) {
             this.client.close();
             this.client = null;
         }
         this.isConnected = false;
+    }
+
+    /**
+     * 重置连接状态（用于重连前）
+     */
+    _resetState() {
+        this.client = null;
+        this.netConnection = null;
+        this.isConnected = false;
+        this.streamId = null;
+        this.publishStream = null;
+        this.transactionId = 2;
+        this.audioSent = false;
+        this.videoSent = false;
+        this.lastAudioTimestamp = 0;
+        this.lastVideoTimestamp = 0;
+        this.stopRandomStreaming();
+    }
+
+    /**
+     * 尝试重连
+     */
+    async _tryReconnect() {
+        if (!this.reconnectEnabled || !this.shouldReconnect) {
+            console.log('重连已禁用');
+            return;
+        }
+
+        if (this.isReconnecting) {
+            console.log('已经在重连中，跳过');
+            return;
+        }
+
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            console.error(`已达到最大重连次数 (${this.maxReconnectAttempts})，停止重连`);
+            this.emit('reconnectFailed', { attempts: this.reconnectAttempts });
+            return;
+        }
+
+        this.isReconnecting = true;
+        this.reconnectAttempts++;
+        
+        console.log(`\n========================================`);
+        console.log(`开始第 ${this.reconnectAttempts}/${this.maxReconnectAttempts} 次重连...`);
+        console.log(`等待 ${this.reconnectInterval / 1000} 秒后重连...`);
+        console.log(`========================================\n`);
+
+        this.emit('reconnecting', { 
+            attempt: this.reconnectAttempts, 
+            maxAttempts: this.maxReconnectAttempts,
+            interval: this.reconnectInterval
+        });
+
+        // 等待重连间隔
+        await new Promise(resolve => setTimeout(resolve, this.reconnectInterval));
+
+        if (!this.shouldReconnect) {
+            console.log('重连已被取消');
+            this.isReconnecting = false;
+            return;
+        }
+
+        try {
+            // 重置状态
+            this._resetState();
+
+            // 重新连接
+            console.log('正在重新连接...');
+            await this.connect(this._rtmpUrl, this._connectOptions);
+            
+            // 连接成功，等待 publishStart 事件后再恢复推流
+            // publishStart 事件会在 sendPublish 的回调中触发
+            console.log('重连成功！等待推流就绪...');
+            
+        } catch (error) {
+            console.error('重连失败:', error.message);
+            this.isReconnecting = false;
+            
+            // 继续尝试重连
+            if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+                this._tryReconnect();
+            } else {
+                this.emit('reconnectFailed', { attempts: this.reconnectAttempts, error });
+            }
+        }
+    }
+
+    /**
+     * 重连成功后恢复推流
+     */
+    _onReconnectSuccess() {
+        console.log('重连成功！');
+        this.isReconnecting = false;
+        this.reconnectAttempts = 0; // 重置重连计数
+
+        this.emit('reconnected', { attempts: this.reconnectAttempts });
+
+        // 恢复推流
+        if (this._streamingMode === 'random') {
+            console.log('恢复随机数据推流...');
+            this.startRandomStreaming();
+        } else if (this._streamingMode === 'custom' && this._customStreamingCallback) {
+            console.log('恢复自定义推流...');
+            this._customStreamingCallback();
+        }
+    }
+
+    /**
+     * 设置推流模式（用于重连后恢复）
+     * @param {string} mode - 'random' 或 'custom'
+     * @param {Function} callback - 自定义推流回调（仅当 mode 为 'custom' 时使用）
+     */
+    setStreamingMode(mode, callback = null) {
+        this._streamingMode = mode;
+        this._customStreamingCallback = callback;
+    }
+
+    /**
+     * 停止重连
+     */
+    stopReconnect() {
+        this.shouldReconnect = false;
+        this.isReconnecting = false;
+        console.log('重连已停止');
     }
 }
 

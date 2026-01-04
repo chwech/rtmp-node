@@ -1,4 +1,5 @@
 {
+  "name": "rtmp-publisher",
   "dependencies": {
     "amf-codec": "^1.4.0",
     "rtmp-client": "^1.6.3"
@@ -7,5 +8,7 @@
     "patchedDependencies": {
       "rtmp-client": "patches/rtmp-client.patch"
     }
-  }
+  },
+  "main": "publish-example.js",
+  "bin": "publish-example.js"
 }

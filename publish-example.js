@@ -18,7 +18,12 @@ async function main() {
   // MP4 文件路径
   const mp4File = path.join(__dirname, 'demo-1080p.mp4');
 
-  const publisher = new RTMPPublisher();
+  // 创建 RTMPPublisher，配置重连参数
+  const publisher = new RTMPPublisher({
+    reconnect: true,           // 启用重连
+    maxReconnectAttempts: 10,  // 最大重连次数
+    reconnectInterval: 3000    // 重连间隔（毫秒）
+  });
   globalPublisher = publisher; // 保存到全局变量
   const mp4Reader = new MP4Reader(mp4File);
   
@@ -138,7 +143,27 @@ async function main() {
   publisher.on('close', (err) => {
     console.log('连接已关闭', err ? err.message : '');
     mp4Reader.stop();
-    publisher.stopRandomStreaming();
+    // 不在这里停止推流，让重连机制处理
+    // publisher.stopRandomStreaming();
+  });
+
+  // 重连相关事件
+  publisher.on('reconnecting', ({ attempt, maxAttempts, interval }) => {
+    console.log(`\n🔄 正在尝试重连... (${attempt}/${maxAttempts})`);
+    console.log(`   ${interval / 1000} 秒后重连...`);
+  });
+
+  publisher.on('reconnected', () => {
+    console.log('\n✅ 重连成功！推流已恢复');
+  });
+
+  publisher.on('reconnectFailed', ({ attempts, error }) => {
+    console.error(`\n❌ 重连失败！已尝试 ${attempts} 次`);
+    if (error) {
+      console.error('   错误:', error.message);
+    }
+    console.log('   程序将退出...');
+    process.exit(1);
   });
 
   try {
@@ -168,9 +193,11 @@ async function main() {
 // 处理程序退出
 process.on('SIGINT', () => {
   console.log('\n正在关闭连接...');
-  // 停止随机推流
-  if (globalPublisher && globalPublisher.stopRandomStreaming) {
-    globalPublisher.stopRandomStreaming();
+  if (globalPublisher) {
+    // 停止重连
+    globalPublisher.stopReconnect();
+    // 关闭连接
+    globalPublisher.close();
   }
   process.exit(0);
 });
