@@ -5,9 +5,9 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  rtmp-client:
-    hash: gxxykrsyzadly2ygvtv6eh2ode
-    path: patches/rtmp-client.patch
+  rtmp-client@1.6.3:
+    hash: webkexwrxtrclfwnljj2j4dsba
+    path: patches/rtmp-client@1.6.3.patch
 
 importers:
 
@@ -18,7 +18,7 @@ importers:
         version: 1.4.0
       rtmp-client:
         specifier: ^1.6.3
-        version: 1.6.3(patch_hash=gxxykrsyzadly2ygvtv6eh2ode)
+        version: 1.6.3(patch_hash=webkexwrxtrclfwnljj2j4dsba)
 
 packages:
 
@@ -32,6 +32,6 @@ snapshots:
 
   amf-codec@1.4.0: {}
 
-  rtmp-client@1.6.3(patch_hash=gxxykrsyzadly2ygvtv6eh2ode):
+  rtmp-client@1.6.3(patch_hash=webkexwrxtrclfwnljj2j4dsba):
     dependencies:
       amf-codec: 1.4.0

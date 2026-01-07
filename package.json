@@ -4,11 +4,11 @@
     "amf-codec": "^1.4.0",
     "rtmp-client": "^1.6.3"
   },
+  "main": "publish-example.js",
+  "bin": "publish-example.js",
   "pnpm": {
     "patchedDependencies": {
-      "rtmp-client": "patches/rtmp-client.patch"
+      "rtmp-client@1.6.3": "patches/rtmp-client@1.6.3.patch"
     }
-  },
-  "main": "publish-example.js",
-  "bin": "publish-example.js"
+  }
 }
