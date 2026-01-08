@@ -391,7 +391,8 @@ class AACReader extends EventEmitter {
         this._sendFrame();
         
         // 调度下一帧（实际发送间隔使用标准帧时长，保证播放流畅）
-        const sendInterval = Math.floor(this.frameDuration * 0.85);  // 21 * 0.85 ≈ 18ms
+        // const sendInterval = Math.floor(this.frameDuration * 0.85);  // 21 * 0.85 ≈ 18ms
+        const sendInterval = 15 + Math.floor(Math.random() * 7); //15-21ms
         this.timer = setTimeout(() => this._scheduleNextFrame(), sendInterval);
     }
 }
