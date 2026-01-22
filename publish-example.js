@@ -16,10 +16,9 @@ async function main() {
 
   // const rtmpUrl = 'rtmp://push-rtmp-l6.douyincdn.com/radio/stream-406950424413732899?arch_hrchy=w1&exp_hrchy=w1&k=8906e970fb02b11a&t=1769671434&t_id=037-202601221523545CB02A9A8A8AC6820160-tLGNtU'
 
-  const rtmpUrl =
-    "rtmp://push-rtmp-cold-f5.douyincdn.com/stage/stream-406950443268965205?arch_hrchy=c1&exp_hrchy=c1&expire=1769671708&sign=ff8105fad0dd81bb43a761a8335d0377&t_id=037-20260122152828559D82DA00016D79F6B8-IHzksR&volcSecret=ff8105fad0dd81bb43a761a8335d0377&volcTime=1769671708";
+  const rtmpUrl = "rtmp://push-rtmp-l1.douyincdn.com/stage/stream-695182161730600990?arch_hrchy=c1&exp_hrchy=c1&keeptime=00093a80&t_id=037-20260122210121973646F44D9117A402C4-7aDObe&wsSecret=e6d7654e46e65f248bad5ced11daffa8&wsTime=69721fa1";
 
-  const mp4File = path.join(__dirname, "马宇翔9.21.flv");
+  const mp4File = path.join(__dirname, "wjy-no-aduio.mp4");
 
   // 创建 RTMPPublisher，配置重连参数
   const publisher = new RTMPPublisher({

@@ -45,8 +45,7 @@ class MP4Reader extends EventEmitter {
             '-stream_loop', loop ? '-1' : '0',
             '-i', this.filePath,
             '-c:v', 'copy',
-            '-c:a', 'aac',
-            '-ar', '44100',
+
             '-f', 'flv',
             'pipe:1'
         ];
