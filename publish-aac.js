@@ -79,8 +79,8 @@ async function main() {
     // RTMP 推流地址
     // 可以 const rtmpUrl = 'rtmp://push-rtmp-cold-f5.douyincdn.com/stage/stream-118633289582642005?arch_hrchy=c1&exp_hrchy=c1&expire=1768378597&sign=fceb83da7fcd6eac0f974918913244c3&t_id=037-20260107161637350DE5D6510A0381D15A-LWOfxP&volcSecret=fceb83da7fcd6eac0f974918913244c3&volcTime=1768378597';
     // 不行 const rtmpUrl = 'rtmp://push-rtmp-c11.douyincdn.com/stage/stream-118637343767003607?arch_hrchy=c1&exp_hrchy=c1&expire=1768439120&sign=a82207125ac6ccb7d7b33cc52d8e095e&t_id=037-2026010809052056845A8202259ED40F20-QM0I3H';
-    const rtmpUrl = 'rtmp://push-rtmp-cold-f5.douyincdn.com/stage/stream-118637786483917653?arch_hrchy=c1&exp_hrchy=c1&expire=1768445611&sign=8b013f334b14e3291c57ef1e75f6582c&t_id=037-20260108105331BB0698ABAB49E4E44331-4kfkpi&volcSecret=8b013f334b14e3291c57ef1e75f6582c&volcTime=1768445611'
 
+    const rtmpUrl = 'rtmp://push-rtmp-c11.douyincdn.com/stage/stream-695141287406600663?arch_hrchy=c1&exp_hrchy=c1&expire=1769082606&sign=d32cd10cbe19ef7ecb02f2104104fca1&t_id=037-202601151950062E940ADA95E9B5838AE5-Vhy8wz'
     // MP3 文件列表（自动转换为 AAC 并缓存到本地）
     // const mp3Files = [
     //     path.join(__dirname, './music/test1.mp3'),

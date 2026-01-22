@@ -1,6 +1,6 @@
 const { NetConnection } = require('rtmp-client');
 
-const rtmpUrl = "rtmp://push-rtmp-l26.douyincdn.com/third/stream-694838987735171558?arch_hrchy=c1&expire=692d54e9&sign=52e02064d7efa40da550a0d9569306a3&t_id=037-2025112416421726C8F95148A0B44B2F5E-eBVyml";
+const rtmpUrl = "rtmp://push-rtmp-l26.douyincdn.com/stage/stream-118679693617266827?arch_hrchy=w1&exp_hrchy=c1&expire=6971dde9&sign=ec7d7e4559d871faba216ecc4dd06c36&t_id=037-2026011516205739D53F2C40EAB583833D-s37V7g"
 
 const nc = new NetConnection();
 nc.onStatus = function (info) {

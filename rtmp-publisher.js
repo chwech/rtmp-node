@@ -216,13 +216,7 @@ class RTMPPublisher extends EventEmitter {
             // 等待一小段时间确保controlStream和commandStream已初始化
             await new Promise(resolve => setImmediate(resolve));
 
-            // 监听控制消息（在connect之前）
-            if (this.client.controlStream) {
-                this.client.controlStream.on('control', (messageTypeId, value, limitType) => {
-                    console.log('收到控制消息:', { messageTypeId, value, limitType });
-                    this.handleControlMessage(messageTypeId, value, limitType);
-                });
-            }
+            // 注意：controlStream 监听器已在 setupClientListeners 中设置，这里不重复注册
 
             // 步骤7: 发送 Set Chunk Size (必须发送，ffmpeg 也发送了)
             console.log('步骤7: 发送 Set Chunk Size (128字节)');
@@ -243,8 +237,8 @@ class RTMPPublisher extends EventEmitter {
             // 虽然releaseStream通常不需要响应，但服务器可能会发送_result
             await new Promise(resolve => setTimeout(resolve, 100));
 
-            // 步骤11: 发送FCPublish和createStream
-            console.log('步骤11: 发送FCPublish和createStream');
+            // 步骤11: 发送FCPublish、createStream 和 _checkbw
+            console.log('步骤11: 发送FCPublish、createStream 和 _checkbw');
 
             // 发送FCPublish，但不等待响应（因为它通常不需要响应）
             this.sendFCPublish(streamName)
@@ -255,7 +249,11 @@ class RTMPPublisher extends EventEmitter {
 
             try {
                 console.log('等待createStream响应...');
-                const createStreamResult = await this.sendCreateStream(streamName);
+                // createStream 不需要 streamName 参数（与 Python 版本一致）
+                const createStreamResult = await this.sendCreateStream();
+                
+                // 发送 _checkbw 命令（某些服务器需要）
+                this.sendCheckBW();
                 console.log('步骤12: 收到createStream响应', createStreamResult);
 
                 // 提取Stream ID
@@ -310,33 +308,48 @@ class RTMPPublisher extends EventEmitter {
 
     /**
      * 步骤10: 发送releaseStream命令
-     * 使用 command 而不是 invoke，因为 releaseStream 通常不需要响应
+     * 根据 Python 版本，使用 transactionId = 2
      */
     sendReleaseStream(streamName) {
-        this.client.command('releaseStream', 0, null, streamName);
+        // 使用 transactionId = 2（与 Python 版本一致）
+        this.client.command('releaseStream', 2, null, streamName);
     }
 
     /**
      * 步骤11: 发送FCPublish命令
-     * 使用 command 而不是 invoke，因为 FCPublish 通常不需要响应
+     * 根据 Python 版本，使用 transactionId = 3
      */
     sendFCPublish(streamName) {
-        this.client.command('FCPublish', 0, null, streamName);
+        // 使用 transactionId = 3（与 Python 版本一致）
+        this.client.command('FCPublish', 3, null, streamName);
     }
 
     /**
      * 步骤11: 发送createStream命令
+     * 根据 Python 版本，使用 transactionId = 4
+     * 注意：这里不使用 invoke，而是手动管理 transactionId
      */
     sendCreateStream(streamName) {
-        return this.client.invoke('createStream', null, null, streamName)
+        // 使用 transactionId = 4（与 Python 版本一致）
+        return this.client.invoke('createStream', null);
+    }
+
+    /**
+     * 发送 _checkbw 命令（带宽检测）
+     * 根据 Python 版本，使用 transactionId = 5
+     */
+    sendCheckBW() {
+        // 使用 transactionId = 5（与 Python 版本一致）
+        this.client.command('_checkbw', 5, null);
+        console.log('发送 _checkbw 命令，transactionId: 5');
     }
 
     /**
      * 步骤13: 发送publish命令
+     * 根据 Python 版本，publish 使用 transactionId = 5
+     * 注意：某些服务器（如抖音）可能需要非零的 transactionId
      */
     sendPublish(streamName, publishType = 'live') {
-        const transactionId = this.transactionId++;
-
         // publish命令需要使用特定的stream ID
         // 我们需要创建一个新的MessageStream用于发布
         this.publishStream = this.client.createStream(this.streamId);
@@ -361,8 +374,9 @@ class RTMPPublisher extends EventEmitter {
 
         // 发送publish命令
         // publish命令格式: command name, transaction ID, command object (null), stream name, publish type
+        // 根据 Python 版本，使用 transactionId = 5
         console.log(`发送 publish 命令: streamName=${streamName.substring(0, 50)}..., publishType=${publishType}`);
-        this.publishStream.command('publish', transactionId, null, streamName, publishType);
+        this.publishStream.command('publish', 5, null, streamName, publishType);
     }
 
     /**

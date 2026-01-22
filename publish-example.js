@@ -15,8 +15,9 @@ async function main() {
   // const rtmpUrl = 'rtmp://push-rtmp-cold-f5.douyincdn.com/stage/stream-118395534362018645?arch_hrchy=c1&exp_hrchy=c1&expire=1764839143&sign=623f878ca4615b69af296a7555b04005&t_id=037-2025112717054348C46ACA85B72BB2F87E-Ekp7tf&volcSecret=623f878ca4615b69af296a7555b04005&volcTime=1764839143'
 
   // const rtmpUrl = 'rtmp://push-rtmp-cold-f5.douyincdn.com/stage/stream-406678100466991957?arch_hrchy=c1&exp_hrchy=c1&expire=1765613452&sign=8b408b55425d256bf90e4a69a79eea6b&t_id=037-20251206161052570A005216B65EF2A0F0-1rxxP3&volcSecret=8b408b55425d256bf90e4a69a79eea6b&volcTime=1765613452'
+    const rtmpUrl = 'rtmp://push-rtmp-t5.douyincdn.com/stage/stream-118679882596877111?arch_hrchy=w1&exp_hrchy=c1&expire=1769072884&sign=a382ed1861f5bf68b39c881356d9515e&t_id=037-20260115170803CD679B1B0240E08BEDCF-6cDtxs&volcSecret=a382ed1861f5bf68b39c881356d9515e&volcTime=1769072884'
 
-  const rtmpUrl = 'rtmp://push-rtmp-c11.douyincdn.com/stage/stream-118632798278386135?arch_hrchy=c1&exp_hrchy=c1&expire=1768371394&sign=0defc7f2c1976b692e1bb29250fdeac0&t_id=037-20260107141634DFF3291E67F5E47D5D6D-3tNv5d'
+  // const rtmpUrl = 'rtmp://push-rtmp-cold-f5.douyincdn.com/stage/stream-118632879814345557?arch_hrchy=c1&exp_hrchy=c1&expire=1768372491&sign=a57de5fad4be0d039170ab08ffbd8f70&t_id=037-20260107143450F0CEFC5777ADEE7E1996-S65CmH&volcSecret=a57de5fad4be0d039170ab08ffbd8f70&volcTime=1768372491'
   const mp4File = path.join(__dirname, 'demo-1080p.mp4');
 
   // 创建 RTMPPublisher，配置重连参数
