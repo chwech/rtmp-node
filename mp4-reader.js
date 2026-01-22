@@ -36,6 +36,8 @@ class MP4Reader extends EventEmitter {
         }
     }
 
+                // '-c:a', 'aac',
+            // '-ar', '44100',
     _startFFmpeg(loop) {
         // 使用 FLV 格式输出，同时包含音频和视频
         const args = [
