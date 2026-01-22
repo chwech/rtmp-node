@@ -1,0 +1,168 @@
+diff --git a/lib/ChunkStream/ChunkStreamEncoder.js b/lib/ChunkStream/ChunkStreamEncoder.js
+index 0bfdd56a6aef6ef114be8f5022234a287521a8ce..6b5ca7631cee6cbace4f80bc2b8a106dcf1e1b72 100644
+--- a/lib/ChunkStream/ChunkStreamEncoder.js
++++ b/lib/ChunkStream/ChunkStreamEncoder.js
+@@ -94,12 +94,39 @@ class ChunkStreamEncoder extends Transform {
+ 		});
+ 		
+ 		this.chunkStreamId = chunkStreamId;
+-		this.timestamp = createTimestamp();
++		this.autoTimestamp = createTimestamp();
++		// 跟踪每个 message type 是否已发送过第一帧（用于决定使用 fmt=0 还是 fmt=1）
++		this.sentFirstFrame = new Map();
++		// 保存上一次的消息属性（用于 fmt=1）
++		this.lastMessageProps = null;
+ 	}
+ 	
+-	_transform ({ messageTypeId, messageStreamId, messageBody }, encoding, callback) {
+-		let format = TYPE_0;
+-		const timestamp = this.timestamp();
++	_transform ({ messageTypeId, messageStreamId, messageBody, timestamp }, encoding, callback) {
++		// 如果没有提供自定义时间戳，使用自动计算的时间戳
++		const actualTimestamp = timestamp !== null && timestamp !== undefined ? timestamp : this.autoTimestamp();
++		
++		// 判断是否是第一帧（基于 messageTypeId）
++		const isFirstFrame = !this.sentFirstFrame.has(messageTypeId);
++		
++		// 选择格式：
++		// - 第一帧使用 TYPE_0（完整 header，11 字节）
++		// - 后续帧使用 TYPE_1（省略 stream id，7 字节）
++		let format;
++		if (isFirstFrame) {
++			format = TYPE_0;
++			this.sentFirstFrame.set(messageTypeId, true);
++		} else if (this.lastMessageProps && 
++			this.lastMessageProps.messageStreamId === messageStreamId) {
++			// 如果 message stream id 相同，可以使用 TYPE_1
++			format = TYPE_1;
++		} else {
++			// 否则使用 TYPE_0
++			format = TYPE_0;
++		}
++		
++		// 保存当前消息属性供下次使用
++		this.lastMessageProps = { messageTypeId, messageStreamId, messageBody };
++		
+ 		for (let position = 0; position < messageBody.length; position += CHUNK_SIZE) {
+ 			const basicHeader = encodeBasicHeader(
+ 				format,
+@@ -107,7 +134,7 @@ class ChunkStreamEncoder extends Transform {
+ 			);
+ 			const messageHeader = encodeMessageHeader(
+ 				format,
+-				timestamp,
++				actualTimestamp,
+ 				messageBody.length,
+ 				messageTypeId,
+ 				messageStreamId,
+diff --git a/lib/ChunkStream/ChunkStreamFilter.js b/lib/ChunkStream/ChunkStreamFilter.js
+index 464bc5b0aa1b110cd050312ef92e783993b5b3e3..26b651bf3b57d7980e2129f9cd321d3f4a64969e 100644
+--- a/lib/ChunkStream/ChunkStreamFilter.js
++++ b/lib/ChunkStream/ChunkStreamFilter.js
+@@ -1,17 +1,27 @@
+ const { Transform } = require('stream');
+ 
+ class ChunkStreamFilter extends Transform {
+-	constructor (chunkStreamId) {
++	constructor (chunkStreamId, messageStreamId = 0) {
+ 		super({
+ 			'objectMode': true,
+ 		});
+ 		
+ 		this.chunkStreamId = chunkStreamId;
++		this.messageStreamId = messageStreamId;
+ 	}
+ 	
+ 	_transform (chunk, encoding, callback) {
+-		if (chunk && chunk.chunkStreamId === this.chunkStreamId) {
+-			this.push(chunk);
++		if (chunk) {
++			// 对于 messageStreamId != 0 的情况，基于 messageStreamId 过滤
++			// 这样服务器可以使用任意的 chunkStreamId 来发送响应
++			if (this.messageStreamId !== 0) {
++				if (chunk.messageStreamId === this.messageStreamId) {
++					this.push(chunk);
++				}
++			} else if (chunk.chunkStreamId === this.chunkStreamId) {
++				// 对于 messageStreamId == 0，使用 chunkStreamId 过滤（保持原有行为）
++				this.push(chunk);
++			}
+ 		}
+ 		callback();
+ 	}
+diff --git a/lib/Client.js b/lib/Client.js
+index 8a57ff01a4f16818559e0fe62ccc49476fed0119..2f39a8ed2373838aa6d9ae8e908b27ac66b4d311 100644
+--- a/lib/Client.js
++++ b/lib/Client.js
+@@ -161,7 +161,8 @@ class Client extends EventEmitter {
+ 		const chunkStreamId = this.chunkStreamId++;
+ 		const stream = new MessageStream(messageStreamId);
+ 		const encoder = new ChunkStreamEncoder(chunkStreamId);
+-		const filter = new ChunkStreamFilter(chunkStreamId);
++		// 传递 messageStreamId 给 filter，以便正确过滤服务器响应
++		const filter = new ChunkStreamFilter(chunkStreamId, messageStreamId);
+ 		
+ 		pipeline(
+ 			stream,
+diff --git a/lib/MessageStream.js b/lib/MessageStream.js
+index fb3c98a4d57dffa5de49d0aa5f20aee6b7146376..50832a754edf05ea20babd03041169a99409b5bf 100644
+--- a/lib/MessageStream.js
++++ b/lib/MessageStream.js
+@@ -70,11 +70,14 @@ class MessageStream extends Duplex {
+ 		this.transactionId = 1;
+ 	}
+ 	
+-	send (messageTypeId, messageBody) {
++	// 支持自定义时间戳，timestamp 可选，默认为 null（使用自动计算的时间戳）
++	send (messageTypeId, messageBody, timestamp = null) {
+ 		this.push({
+ 			'messageStreamId': this.messageStreamId,
+ 			messageTypeId,
+ 			messageBody,
++			// 传递时间戳，如果为 null，ChunkStreamEncoder 会自动计算
++			timestamp,
+ 		});
+ 	}
+ 	
+diff --git a/lib/NetConnection.js b/lib/NetConnection.js
+index 3e4be6f259b004c39bce8aca091a167270df0a67..2716919a489146fe16db5cdeba7c5a910a90f95d 100644
+--- a/lib/NetConnection.js
++++ b/lib/NetConnection.js
+@@ -60,13 +60,15 @@ class NetConnection {
+ 			return false;
+ 		}
+ 		
+-		const [, application, instance] = pathname.split('/');
++		const [, application] = pathname.split('/');
+ 		if (!application) {
+ 			return false;
+ 		}
+ 		
+-		const app = `${application}${instance ? '/' : ''}${instance || ''}`;
+-		const tcUrl = `${protocol}//${hostname}:${port}/${app}${search}`;
++		// app 只取第一段
++		const app = application;
++		// tcUrl 不包含查询参数（与 ffmpeg 行为一致）
++		const tcUrl = `${protocol}//${hostname}:${port}/${app}`;
+ 		
+ 		const client = new Client(hostname, port);
+ 		this[CLIENT] = client;
+@@ -160,8 +162,9 @@ class NetConnection {
+ 		try {
+ 			const [, response] = await client.invoke('connect', null, {
+ 				app,
++				'type': 'nonprivate',
+ 				tcUrl,
+-				'flashVer': 'WIN 32,0,0,465',
++				'flashVer': 'FMLE/3.0 (compatible; FMSc/1.0)',
+ 				'fpad': false,
+ 				'capabilities': 15,
+ 				'audioCodecs': 3191,
+@@ -172,6 +175,7 @@ class NetConnection {
+ 			
+ 			this.isConnected = true;
+ 			this.uri = uri;
++			// 启用 PingPong 保活
+ 			this[PING_PONG].start(client);
+ 			
+ 			for (const name of [...new Set(this[SHAREDOBJECT])]) {
