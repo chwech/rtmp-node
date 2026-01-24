@@ -4,6 +4,7 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 const readline = require("readline");
+const { sleep } = require("./shared/utils");
 
 // 全局变量，用于 SIGINT 处理
 let globalPublisher = null;
@@ -50,12 +51,14 @@ async function main() {
   const rtmpUrl = await prompt("请输入 RTMP 推流地址: ");
   if (!rtmpUrl) {
     console.error("RTMP 地址不能为空！");
+    await sleep(10)
     process.exit(1);
   }
 
   const mp4FileName = await prompt("请输入 MP4/FLV 文件名: ");
   if (!mp4FileName) {
     console.error("文件名不能为空！");
+    await sleep(10)
     process.exit(1);
   }
 
@@ -65,6 +68,8 @@ async function main() {
   if (!fs.existsSync(mp4File)) {
     console.error("文件不存在:", mp4File);
     console.log("请将媒体文件放到目录:", mp4Dir);
+
+    await sleep(10)
     process.exit(1);
   }
 

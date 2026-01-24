@@ -4,8 +4,8 @@
     "amf-codec": "^1.4.0",
     "rtmp-client": "^1.6.3"
   },
-  "main": "publish-example.js",
-  "bin": "publish-example.js",
+  "main": "src/publish-example.js",
+  "bin": "src/publish-example.js",
   "scripts": {
     "build": "pkg ."
   },
