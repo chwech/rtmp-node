@@ -6,9 +6,18 @@
   },
   "main": "publish-example.js",
   "bin": "publish-example.js",
+  "scripts": {
+    "build": "pkg ."
+  },
   "pnpm": {
     "patchedDependencies": {
       "rtmp-client@1.6.3": "patches/rtmp-client@1.6.3.patch"
     }
+  },
+  "pkg": {
+    "targets": [
+      "node18-win-x64"
+    ],
+    "outputPath": "dist"
   }
 }

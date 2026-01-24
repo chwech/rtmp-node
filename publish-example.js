@@ -1,24 +1,72 @@
 const RTMPPublisher = require("./rtmp-publisher");
 const MP4Reader = require("./mp4-reader");
 const path = require("path");
+const os = require("os");
+const fs = require("fs");
+const readline = require("readline");
 
 // 全局变量，用于 SIGINT 处理
 let globalPublisher = null;
+
+// 获取 home 目录下的 .rtmp_node/mp4 目录
+const rtmpNodeDir = path.join(os.homedir(), ".rtmp_node");
+const mp4Dir = path.join(rtmpNodeDir, "mp4");
+
+// 确保目录存在
+function ensureDirectories() {
+  if (!fs.existsSync(rtmpNodeDir)) {
+    fs.mkdirSync(rtmpNodeDir, { recursive: true });
+    console.log("创建目录:", rtmpNodeDir);
+  }
+  if (!fs.existsSync(mp4Dir)) {
+    fs.mkdirSync(mp4Dir, { recursive: true });
+    console.log("创建目录:", mp4Dir);
+  }
+}
+
+// 命令行输入提示
+function prompt(question) {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
 
 /**
  * RTMP推流示例
  * 循环读取 MP4 文件并推流（包含音频和视频）
  */
 async function main() {
-  // RTMP 推流地址
-  // const rtmpUrl = 'rtmp://36.212.31.8/live/test-stream';
-  // const rtmpUrl = 'rtmp://push-rtmp-l26.douyincdn.com/stage/stream-118719757478527115?arch_hrchy=c1&exp_hrchy=c1&expire=697af9f3&sign=12b1e1914f257fd4921f908e85136a31&t_id=037-202601221410591E2003B61D8C2E6D874E-Gboclw'
+  // 确保目录存在
+  ensureDirectories();
 
-  // const rtmpUrl = 'rtmp://push-rtmp-l6.douyincdn.com/radio/stream-406950424413732899?arch_hrchy=w1&exp_hrchy=w1&k=8906e970fb02b11a&t=1769671434&t_id=037-202601221523545CB02A9A8A8AC6820160-tLGNtU'
+  // 从命令行输入获取 rtmpUrl 和 mp4 文件名
+  const rtmpUrl = await prompt("请输入 RTMP 推流地址: ");
+  if (!rtmpUrl) {
+    console.error("RTMP 地址不能为空！");
+    process.exit(1);
+  }
 
-  const rtmpUrl = "rtmp://push-rtmp-l1.douyincdn.com/stage/stream-695182161730600990?arch_hrchy=c1&exp_hrchy=c1&keeptime=00093a80&t_id=037-20260122210121973646F44D9117A402C4-7aDObe&wsSecret=e6d7654e46e65f248bad5ced11daffa8&wsTime=69721fa1";
+  const mp4FileName = await prompt("请输入 MP4/FLV 文件名: ");
+  if (!mp4FileName) {
+    console.error("文件名不能为空！");
+    process.exit(1);
+  }
 
-  const mp4File = path.join(__dirname, "wjy-no-aduio.mp4");
+  const mp4File = path.join(mp4Dir, mp4FileName);
+
+  // 检查文件是否存在
+  if (!fs.existsSync(mp4File)) {
+    console.error("文件不存在:", mp4File);
+    console.log("请将媒体文件放到目录:", mp4Dir);
+    process.exit(1);
+  }
 
   // 创建 RTMPPublisher，配置重连参数
   const publisher = new RTMPPublisher({
