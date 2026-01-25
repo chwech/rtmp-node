@@ -222,6 +222,8 @@ class RTMPPublisher extends EventEmitter {
             // 注意：controlStream 监听器已在 setupClientListeners 中设置，这里不重复注册
 
             // 步骤7: 发送 Set Chunk Size (必须发送，ffmpeg 也发送了)
+            // 注意：rtmp-client 库内部硬编码了 CHUNK_SIZE=128，必须与库保持一致
+            // 如果要改成 4096 需要同时修改 node_modules/rtmp-client/lib/ChunkStream/ChunkConstants.js
             log.info('步骤7: 发送 Set Chunk Size (128字节)');
             this.setChunkSize(128);
 
