@@ -4,7 +4,10 @@ const path = require("path");
 const os = require("os");
 const fs = require("fs");
 const readline = require("readline");
-const { sleep } = require("./shared/utils");
+const { createLogger } = require("./shared/logger");
+
+// 创建日志器
+const log = createLogger("推流");
 
 // 全局变量，用于 SIGINT 处理
 let globalPublisher = null;
@@ -17,11 +20,11 @@ const mp4Dir = path.join(rtmpNodeDir, "mp4");
 function ensureDirectories() {
   if (!fs.existsSync(rtmpNodeDir)) {
     fs.mkdirSync(rtmpNodeDir, { recursive: true });
-    console.log("创建目录:", rtmpNodeDir);
+    log.info("创建目录:", rtmpNodeDir);
   }
   if (!fs.existsSync(mp4Dir)) {
     fs.mkdirSync(mp4Dir, { recursive: true });
-    console.log("创建目录:", mp4Dir);
+    log.info("创建目录:", mp4Dir);
   }
 }
 
@@ -39,6 +42,13 @@ function prompt(question) {
   });
 }
 
+// 等待用户按键后退出
+async function waitAndExit(code = 1) {
+  log.info("按回车键退出...");
+  await prompt("");
+  process.exit(code);
+}
+
 /**
  * RTMP推流示例
  * 循环读取 MP4 文件并推流（包含音频和视频）
@@ -50,27 +60,23 @@ async function main() {
   // 从命令行输入获取 rtmpUrl 和 mp4 文件名
   const rtmpUrl = await prompt("请输入 RTMP 推流地址: ");
   if (!rtmpUrl) {
-    console.error("RTMP 地址不能为空！");
-    await sleep(10)
-    process.exit(1);
+    log.error("RTMP 地址不能为空！");
+    await waitAndExit(1);
   }
 
   const mp4FileName = await prompt("请输入 MP4/FLV 文件名: ");
   if (!mp4FileName) {
-    console.error("文件名不能为空！");
-    await sleep(10)
-    process.exit(1);
+    log.error("文件名不能为空！");
+    await waitAndExit(1);
   }
 
   const mp4File = path.join(mp4Dir, mp4FileName);
 
   // 检查文件是否存在
   if (!fs.existsSync(mp4File)) {
-    console.error("文件不存在:", mp4File);
-    console.log("请将媒体文件放到目录:", mp4Dir);
-
-    await sleep(10)
-    process.exit(1);
+    log.error("文件不存在:", mp4File);
+    log.info("请将媒体文件放到目录:", mp4Dir);
+    await waitAndExit(1);
   }
 
   // 创建 RTMPPublisher，配置重连参数
@@ -90,7 +96,7 @@ async function main() {
   // 监听 AVC 序列头
   mp4Reader.on("avcSequenceHeader", (avcConfig) => {
     if (publisher.publishStream) {
-      console.log("发送 AVC 序列头...");
+      log.info("发送 AVC 序列头...");
       publisher.sendAVCConfig(avcConfig);
       avcConfigSent = true;
     }
@@ -123,20 +129,18 @@ async function main() {
         videoFrameCount++;
 
         if (videoFrameCount % 100 === 0) {
-          console.log(
-            `视频: ${videoFrameCount} 帧, 音频: ${audioFrameCount} 帧, ts: ${frame.timestamp}ms`
-          );
+          log.info(`视频: ${videoFrameCount} 帧, 音频: ${audioFrameCount} 帧, ts: ${frame.timestamp}ms`);
         }
       }
     } catch (error) {
-      console.error("发送视频帧失败:", error);
+      log.error("发送视频帧失败:", error);
     }
   });
 
   // 监听音频序列头
   mp4Reader.on("audioSequenceHeader", (audio) => {
     if (publisher.publishStream && !audioConfigSent) {
-      console.log("发送 AAC 序列头...");
+      log.info("发送 AAC 序列头...");
       publisher.sendAudioSequenceHeader(audio.header, audio.config);
       audioConfigSent = true;
     }
@@ -151,22 +155,22 @@ async function main() {
       publisher.sendAudioFrame(frame.header, frame.data, frame.timestamp);
       audioFrameCount++;
     } catch (error) {
-      console.error("发送音频帧失败:", error);
+      log.error("发送音频帧失败:", error);
     }
   });
 
   mp4Reader.on("error", (error) => {
-    console.error("MP4 读取错误:", error);
+    log.error("MP4 读取错误:", error);
   });
 
   mp4Reader.on("end", () => {
-    console.log("MP4 播放结束");
+    log.info("MP4 播放结束");
   });
 
   // 监听推流事件
   publisher.on("publishStart", (statusInfo) => {
-    console.log("\n✅ 推流成功启动！");
-    console.log("状态信息:", JSON.stringify(statusInfo, null, 2));
+    log.success("推流成功启动！");
+    log.info("状态信息:", statusInfo);
 
     // 注意：按照 ffmpeg 的行为，不主动发送 WindowAckSize 和 PingPong
     // 服务器会在需要时发送 ping，客户端会自动响应 pong
@@ -176,35 +180,35 @@ async function main() {
 
     if (useRandomData) {
       // 推送随机音视频数据（与 Python rtmp_connector.py 相同的逻辑）
-      console.log("\n开始推送随机音视频数据（与 Python 相同的逻辑）...");
+      log.info("开始推送随机音视频数据（与 Python 相同的逻辑）...");
       publisher.startRandomStreaming();
     } else {
       // 发送元数据
-      console.log("\n发送元数据...");
+      log.info("发送元数据...");
       try {
         const metadata = mp4Reader.getMetadata();
         publisher.sendCustomMetaData(metadata);
       } catch (error) {
-        console.error("发送元数据失败:", error);
+        log.error("发送元数据失败:", error);
       }
 
       // 开始读取 MP4 文件并推流
-      console.log("\n开始读取 MP4 文件并推流（包含音频和视频）...");
-      console.log("文件:", mp4File);
+      log.info("开始读取 MP4 文件并推流（包含音频和视频）...");
+      log.info("文件:", mp4File);
       mp4Reader.start(true); // true = 循环播放
     }
   });
 
   publisher.on("status", (statusInfo) => {
-    console.log("状态更新:", statusInfo);
+    log.info("状态更新:", statusInfo);
   });
 
   publisher.on("error", (error) => {
-    console.error("发生错误:", error);
+    log.error("发生错误:", error);
   });
 
   publisher.on("close", (err) => {
-    console.log("连接已关闭", err ? err.message : "");
+    log.warn("连接已关闭", err ? err.message : "");
     mp4Reader.stop();
     // 不在这里停止推流，让重连机制处理
     // publisher.stopRandomStreaming();
@@ -212,28 +216,27 @@ async function main() {
 
   // 重连相关事件
   publisher.on("reconnecting", ({ attempt, maxAttempts, interval }) => {
-    console.log(`\n🔄 正在尝试重连... (${attempt}/${maxAttempts})`);
-    console.log(`   ${interval / 1000} 秒后重连...`);
+    log.progress(`正在尝试重连... (${attempt}/${maxAttempts}), ${interval / 1000} 秒后重连...`);
   });
 
   publisher.on("reconnected", () => {
-    console.log("\n✅ 重连成功！推流已恢复");
+    log.success("重连成功！推流已恢复");
   });
 
-  publisher.on("reconnectFailed", ({ attempts, error }) => {
-    console.error(`\n❌ 重连失败！已尝试 ${attempts} 次`);
+  publisher.on("reconnectFailed", async ({ attempts, error }) => {
+    log.fail(`重连失败！已尝试 ${attempts} 次`);
     if (error) {
-      console.error("   错误:", error.message);
+      log.error("错误:", error.message);
     }
-    console.log("   程序将退出...");
-    process.exit(1);
+    await waitAndExit(1);
   });
 
   try {
-    console.log("开始RTMP推流流程...\n");
-    console.log("推流地址:", rtmpUrl);
-    console.log("MP4文件:", mp4File);
-    console.log("=".repeat(80));
+    log.info("开始 RTMP 推流流程...");
+    log.separator();
+    log.info("推流地址:", rtmpUrl);
+    log.info("MP4 文件:", mp4File);
+    log.separator();
 
     // 连接到服务器并完成推流准备
     await publisher.connect(rtmpUrl, {
@@ -243,18 +246,18 @@ async function main() {
     });
 
     // 保持程序运行
-    console.log("\n程序保持运行中，按 Ctrl+C 退出...");
+    log.info("程序保持运行中，按 Ctrl+C 退出...");
     await new Promise(() => {});
   } catch (error) {
-    console.error("推流失败:", error);
+    log.error("推流失败:", error);
     mp4Reader.stop();
-    process.exit(1);
+    await waitAndExit(1);
   }
 }
 
 // 处理程序退出
 process.on("SIGINT", () => {
-  console.log("\n正在关闭连接...");
+  log.info("正在关闭连接...");
   if (globalPublisher) {
     // 停止重连
     globalPublisher.stopReconnect();
@@ -264,9 +267,24 @@ process.on("SIGINT", () => {
   process.exit(0);
 });
 
+// 全局未捕获异常处理
+process.on("uncaughtException", async (error) => {
+  log.error("未捕获的异常:", error);
+  await waitAndExit(1);
+});
+
+// 全局未处理的 Promise 拒绝
+process.on("unhandledRejection", async (reason, promise) => {
+  log.error("未处理的 Promise 拒绝:", reason);
+  await waitAndExit(1);
+});
+
 // 运行主程序
 if (require.main === module) {
-  main().catch(console.error);
+  main().catch(async (error) => {
+    log.error("程序错误:", error);
+    await waitAndExit(1);
+  });
 }
 
 module.exports = { main };

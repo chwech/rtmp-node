@@ -1,5 +1,41 @@
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
+const path = require('path');
+const fs = require('fs');
+const { createLogger } = require('./shared/logger');
+
+// 创建日志器
+const log = createLogger('FFmpeg');
+
+/**
+ * 获取 ffmpeg 可执行文件路径
+ * 优先查找程序同目录下的 ffmpeg，如果没有则使用系统 PATH 中的
+ */
+function getFFmpegPath() {
+    const isWindows = process.platform === 'win32';
+    const ffmpegName = isWindows ? 'ffmpeg.exe' : 'ffmpeg';
+    
+    // 获取程序所在目录（支持打包后的 exe）
+    const exeDir = path.dirname(process.execPath);
+    const localFFmpeg = path.join(exeDir, ffmpegName);
+    
+    // 检查程序同目录下是否有 ffmpeg
+    if (fs.existsSync(localFFmpeg)) {
+        log.info('使用本地 ffmpeg:', localFFmpeg);
+        return localFFmpeg;
+    }
+    
+    // 如果是开发环境，检查当前工作目录
+    const cwdFFmpeg = path.join(process.cwd(), ffmpegName);
+    if (fs.existsSync(cwdFFmpeg)) {
+        log.info('使用工作目录 ffmpeg:', cwdFFmpeg);
+        return cwdFFmpeg;
+    }
+    
+    // 使用系统 PATH 中的 ffmpeg
+    log.info('使用系统 ffmpeg');
+    return 'ffmpeg';
+}
 
 /**
  * MP4 文件读取器
@@ -16,6 +52,7 @@ class MP4Reader extends EventEmitter {
         this.height = 1080;
         this.audioSampleRate = 48000;
         this.audioChannels = 2;
+        this.ffmpegPath = getFFmpegPath();
     }
 
     /**
@@ -51,9 +88,9 @@ class MP4Reader extends EventEmitter {
             'pipe:1'
         ];
 
-        console.log('启动 ffmpeg:', 'ffmpeg', args.join(' '));
+        log.info('启动 ffmpeg:', this.ffmpegPath, args.join(' '));
         
-        this.ffmpeg = spawn('ffmpeg', args);
+        this.ffmpeg = spawn(this.ffmpegPath, args);
         
         let buffer = Buffer.alloc(0);
         let headerParsed = false;
@@ -94,9 +131,9 @@ class MP4Reader extends EventEmitter {
         });
 
         this.ffmpeg.on('close', (code) => {
-            console.log('ffmpeg 进程退出，代码:', code);
+            log.warn('ffmpeg 进程退出，代码:', code);
             if (this.isRunning && loop && code !== 0) {
-                console.log('重新启动 ffmpeg...');
+                log.progress('重新启动 ffmpeg...');
                 setTimeout(() => this._startFFmpeg(loop), 1000);
             } else if (!loop || code === 0) {
                 this.emit('end');
@@ -104,7 +141,7 @@ class MP4Reader extends EventEmitter {
         });
 
         this.ffmpeg.on('error', (err) => {
-            console.error('ffmpeg 错误:', err);
+            log.error('ffmpeg 错误:', err);
             this.emit('error', err);
         });
     }
@@ -187,12 +224,12 @@ class MP4Reader extends EventEmitter {
             
             if (avcPacketType === 0) { // AVC 序列头
                 const avcConfig = data.slice(5);
-                console.log(`[FLV] AVC序列头, ts=${timestamp}, size=${avcConfig.length}`);
+                log.debug(`AVC序列头, ts=${timestamp}, size=${avcConfig.length}`);
                 this.emit('avcSequenceHeader', avcConfig);
             } else if (avcPacketType === 1) { // AVC NALU
                 const naluData = data.slice(5);
                 if (this.videoFrameCount < 5 || frameType === 1) {
-                    console.log(`[FLV] 视频帧 #${this.videoFrameCount}, keyframe=${frameType===1}, ts=${timestamp}, cts=${cts}, size=${naluData.length}`);
+                    log.debug(`视频帧 #${this.videoFrameCount}, keyframe=${frameType===1}, ts=${timestamp}, cts=${cts}, size=${naluData.length}`);
                 }
                 this.videoFrameCount = (this.videoFrameCount || 0) + 1;
                 this.emit('videoFrame', {
@@ -202,7 +239,7 @@ class MP4Reader extends EventEmitter {
                     compositionTime: cts
                 });
             } else if (avcPacketType === 2) { // AVC 序列结束
-                console.log('[FLV] AVC序列结束');
+                log.debug('AVC序列结束');
             }
         }
     }

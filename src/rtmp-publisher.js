@@ -5,6 +5,9 @@ const NetConnection = require('rtmp-client/lib/NetConnection');
 const { CLIENT } = require('rtmp-client/lib/Symbols');
 const { SET_CHUNK_SIZE, WINDOW_ACKNOWLEDGEMENT_SIZE, SET_PEER_BANDWIDTH, ACKNOWLEDGEMENT, DATA_MESSAGE_AMF0, VIDEO_MESSAGE, AUDIO_MESSAGE } = require('rtmp-client/lib/MessageTypes');
 const { toAMF } = require('amf-codec');
+const { createLogger } = require('./shared/logger');
+
+const log = createLogger('RTMP');
 
 /**
  * RTMP推流客户端
@@ -58,7 +61,7 @@ class RTMPPublisher extends EventEmitter {
 
         return new Promise((resolve, reject) => {
             const url = new URL(rtmpUrl);
-            console.log('url:', url);
+            log.info('url:', url);
             if (url.protocol !== 'rtmp:') {
                 throw new Error('仅支持rtmp协议');
             }
@@ -85,17 +88,17 @@ class RTMPPublisher extends EventEmitter {
             const tcUrl = `rtmp://${hostname}:${port}/${app}${search}`;
             const swfUrl = options.swfUrl || `rtmp://${hostname}:${port}/${app}${search}`;
 
-            console.log('步骤1-3: 建立TCP连接...');
+            log.info('步骤1-3: 建立TCP连接...');
 
             // 使用NetConnection来完成connect，确保兼容性
             this.netConnection = new NetConnection();
 
             // 监听NetConnection的状态
             this.netConnection.onStatus = (info) => {
-                console.log('NetConnection状态:', info);
+                log.info('NetConnection状态:', info);
                 // 连接成功
                 if (info.code === 'NetConnection.Connect.Success') {
-                    console.log('步骤9: connect成功！');
+                    log.info('步骤9: connect成功！');
                     // 获取内部的client
                     this.client = this.netConnection[CLIENT];
 
@@ -104,17 +107,17 @@ class RTMPPublisher extends EventEmitter {
                         this.setupClientListeners();
                         // 继续后续步骤
                         this.onConnectSuccess(app, tcUrl, swfUrl, streamName, options).catch((err) => {
-                            console.error('onConnectSuccess处理失败:', err);
+                            log.error('onConnectSuccess处理失败:', err);
                             this.emit('error', err);
                         });
                         resolve(this.client);
                     } else {
-                        console.error('无法获取内部client对象');
+                        log.error('无法获取内部client对象');
                         this.emit('error', new Error('无法获取内部client对象'));
                         reject(new Error('无法获取内部client对象'));
                     }
                 } else if (info.level === 'error') {
-                    console.error('NetConnection连接失败:', info);
+                    log.error('NetConnection连接失败:', info);
                     this.emit('error', new Error(info.description || info.code));
                     reject(new Error(info.description || info.code));
                 }
@@ -136,29 +139,29 @@ class RTMPPublisher extends EventEmitter {
 
         // 监听控制消息
         if (this.client.controlStream) {
-            console.log('设置 controlStream 监听器');
+            log.info('设置 controlStream 监听器');
             this.client.controlStream.on('control', (messageTypeId, value, limitType) => {
-                console.log('收到控制消息:', { messageTypeId, value, limitType });
+                log.info('收到控制消息:', { messageTypeId, value, limitType });
                 this.handleControlMessage(messageTypeId, value, limitType);
             });
         } else {
-            console.log('警告: controlStream 不可用');
+            log.info('警告: controlStream 不可用');
         }
 
         this.client.on('command', (name, transactionId, command, ...args) => {
-            console.log(`[Client command事件] ${name}, transactionId: ${transactionId}`);
+            log.info(`[Client command事件] ${name}, transactionId: ${transactionId}`);
             this.handleCommand(name, transactionId, command, ...args);
         });
 
         // 直接监听commandStream的命令事件（用于调试）
         if (this.client.commandStream) {
             this.client.commandStream.on('command', (name, transactionId, command, ...args) => {
-                console.log(`[CommandStream command事件] ${name}, transactionId: ${transactionId}, args长度: ${args.length}`);
+                log.info(`[CommandStream command事件] ${name}, transactionId: ${transactionId}, args长度: ${args.length}`);
                 if (name === '_result') {
-                    console.log(`收到_result响应，transactionId: ${transactionId}`);
-                    console.log(`当前transactions Map中的keys:`, Array.from(this.client.commandStream.transactions.keys()));
+                    log.info(`收到_result响应，transactionId: ${transactionId}`);
+                    log.info(`当前transactions Map中的keys:`, Array.from(this.client.commandStream.transactions.keys()));
                     if (args.length > 0) {
-                        console.log(`_result参数:`, args[0]);
+                        log.info(`_result参数:`, args[0]);
                     }
                 }
                 // invoke会自动处理transaction匹配，这里只用于日志
@@ -166,22 +169,22 @@ class RTMPPublisher extends EventEmitter {
         }
 
         this.client.on('close', (err) => {
-            console.log('连接关闭事件触发', err ? err.message : '正常关闭');
+            log.info('连接关闭事件触发', err ? err.message : '正常关闭');
             if (err) {
-                console.error('连接关闭原因:', err);
+                log.error('连接关闭原因:', err);
             }
             // 检查是否有pending的请求
             if (this.client && this.client.commandStream) {
                 const pendingTransactions = Array.from(this.client.commandStream.transactions.keys());
-                console.log('连接关闭时，transactions Map中的keys:', pendingTransactions);
-                console.log('连接关闭时，commandStream当前transactionId:', this.client.commandStream.transactionId);
+                log.info('连接关闭时，transactions Map中的keys:', pendingTransactions);
+                log.info('连接关闭时，commandStream当前transactionId:', this.client.commandStream.transactionId);
                 if (pendingTransactions.length > 0) {
-                    console.error('警告：连接关闭时仍有pending的请求:', pendingTransactions);
+                    log.error('警告：连接关闭时仍有pending的请求:', pendingTransactions);
                 }
             }
             // 检查socket状态
             if (this.client && this.client.socket) {
-                console.log('连接关闭时，socket状态:', {
+                log.info('连接关闭时，socket状态:', {
                     destroyed: this.client.socket.destroyed,
                     readable: this.client.socket.readable,
                     writable: this.client.socket.writable
@@ -189,7 +192,7 @@ class RTMPPublisher extends EventEmitter {
             }
             // 检查NetConnection状态
             if (this.netConnection) {
-                console.log('连接关闭时，NetConnection.isConnected:', this.netConnection.isConnected);
+                log.info('连接关闭时，NetConnection.isConnected:', this.netConnection.isConnected);
             }
             this.isConnected = false;
             this.emit('close', err);
@@ -201,7 +204,7 @@ class RTMPPublisher extends EventEmitter {
         });
 
         this.client.on('error', (err) => {
-            console.error('Client错误:', err);
+            log.error('Client错误:', err);
             this.emit('error', err);
         });
     }
@@ -211,7 +214,7 @@ class RTMPPublisher extends EventEmitter {
      */
     async onConnectSuccess(app, tcUrl, swfUrl, streamName, options) {
         try {
-            console.log('步骤4-6: RTMP握手完成');
+            log.info('步骤4-6: RTMP握手完成');
 
             // 等待一小段时间确保controlStream和commandStream已初始化
             await new Promise(resolve => setImmediate(resolve));
@@ -219,17 +222,17 @@ class RTMPPublisher extends EventEmitter {
             // 注意：controlStream 监听器已在 setupClientListeners 中设置，这里不重复注册
 
             // 步骤7: 发送 Set Chunk Size (必须发送，ffmpeg 也发送了)
-            console.log('步骤7: 发送 Set Chunk Size (128字节)');
+            log.info('步骤7: 发送 Set Chunk Size (128字节)');
             this.setChunkSize(128);
 
             // 等待一小段时间，让服务器可能发送的控制消息先到达
             await new Promise(resolve => setTimeout(resolve, 200));
 
             // connect已经由NetConnection完成，跳过步骤8-9
-            console.log('步骤8-9: connect命令已由NetConnection完成');
+            log.info('步骤8-9: connect命令已由NetConnection完成');
 
             // 步骤10: 发送releaseStream
-            console.log('步骤10: 发送releaseStream');
+            log.info('步骤10: 发送releaseStream');
             this.sendReleaseStream(streamName);
      
 
@@ -238,7 +241,7 @@ class RTMPPublisher extends EventEmitter {
             await new Promise(resolve => setTimeout(resolve, 100));
 
             // 步骤11: 发送FCPublish、createStream 和 _checkbw
-            console.log('步骤11: 发送FCPublish、createStream 和 _checkbw');
+            log.info('步骤11: 发送FCPublish、createStream 和 _checkbw');
 
             // 发送FCPublish，但不等待响应（因为它通常不需要响应）
             this.sendFCPublish(streamName)
@@ -248,13 +251,13 @@ class RTMPPublisher extends EventEmitter {
             await new Promise(resolve => setImmediate(resolve));
 
             try {
-                console.log('等待createStream响应...');
+                log.info('等待createStream响应...');
                 // createStream 不需要 streamName 参数（与 Python 版本一致）
                 const createStreamResult = await this.sendCreateStream();
                 
                 // 发送 _checkbw 命令（某些服务器需要）
                 this.sendCheckBW();
-                console.log('步骤12: 收到createStream响应', createStreamResult);
+                log.info('步骤12: 收到createStream响应', createStreamResult);
 
                 // 提取Stream ID
                 // 从对照表看，createStream _result返回的是流ID（数字）
@@ -262,26 +265,26 @@ class RTMPPublisher extends EventEmitter {
                 if (createStreamResult && createStreamResult.length > 1) {
                     // result[0]是command对象（null），result[1]是stream ID
                     this.streamId = createStreamResult[1];
-                    console.log(`分配的Stream ID: ${this.streamId}`);
+                    log.info(`分配的Stream ID: ${this.streamId}`);
                 } else if (createStreamResult && createStreamResult.length > 0) {
                     // 备用：如果格式不同，尝试第一个元素
                     this.streamId = createStreamResult[0];
-                    console.log(`分配的Stream ID (备用): ${this.streamId}`);
+                    log.info(`分配的Stream ID (备用): ${this.streamId}`);
                 } else {
                     throw new Error('未收到有效的Stream ID');
                 }
             } catch (error) {
-                console.error('createStream失败:', error);
+                log.error('createStream失败:', error);
                 throw error;
             }
 
             // 步骤13: 发送publish命令
-            console.log('步骤13: 发送publish命令');
+            log.info('步骤13: 发送publish命令');
             this.sendPublish(streamName, options.publishType || 'live');
 
             // 步骤14: 等待服务器响应onStatus (NetStream.Publish.Start)
             // 这个响应会通过handleCommand方法处理
-            console.log('等待服务器响应publish状态...');
+            log.info('等待服务器响应publish状态...');
         } catch (error) {
             this.emit('error', error);
             throw error;
@@ -301,7 +304,7 @@ class RTMPPublisher extends EventEmitter {
             this.client.controlStream.send(SET_CHUNK_SIZE, chunkSizeBuffer);
             this.chunkSize = size;
         } else {
-            console.warn('controlStream未就绪，稍后重试');
+            log.warn('controlStream未就绪，稍后重试');
             setTimeout(() => this.setChunkSize(size), 100);
         }
     }
@@ -341,7 +344,7 @@ class RTMPPublisher extends EventEmitter {
     sendCheckBW() {
         // 使用 transactionId = 5（与 Python 版本一致）
         this.client.command('_checkbw', 5, null);
-        console.log('发送 _checkbw 命令，transactionId: 5');
+        log.info('发送 _checkbw 命令，transactionId: 5');
     }
 
     /**
@@ -359,14 +362,14 @@ class RTMPPublisher extends EventEmitter {
             if (name === 'onStatus') {
                 const statusInfo = args[0];
                 if (statusInfo && statusInfo.code === 'NetStream.Publish.Start') {
-                    console.log('步骤14: 收到onStatus响应 - NetStream.Publish.Start');
-                    console.log('发布状态:', statusInfo);
+                    log.info('步骤14: 收到onStatus响应 - NetStream.Publish.Start');
+                    log.info('发布状态:', statusInfo);
                     this.isConnected = true;
-                    console.log('触发publishStart事件...');
+                    log.info('触发publishStart事件...');
                     this.emit('publishStart', statusInfo);
-                    console.log('publishStart事件已触发');
+                    log.info('publishStart事件已触发');
                 } else if (statusInfo) {
-                    console.log('收到onStatus:', statusInfo);
+                    log.info('收到onStatus:', statusInfo);
                     this.emit('status', statusInfo);
                 }
             }
@@ -375,7 +378,7 @@ class RTMPPublisher extends EventEmitter {
         // 发送publish命令
         // publish命令格式: command name, transaction ID, command object (null), stream name, publish type
         // 根据 Python 版本，使用 transactionId = 5
-        console.log(`发送 publish 命令: streamName=${streamName.substring(0, 50)}..., publishType=${publishType}`);
+        log.info(`发送 publish 命令: streamName=${streamName.substring(0, 50)}..., publishType=${publishType}`);
         this.publishStream.command('publish', 5, null, streamName, publishType);
     }
 
@@ -410,7 +413,7 @@ class RTMPPublisher extends EventEmitter {
         ]);
 
         this.publishStream.send(DATA_MESSAGE_AMF0, metadataBuffer);
-        console.log('已发送onMetaData');
+        log.info('已发送onMetaData');
     }
 
     /**
@@ -461,7 +464,7 @@ class RTMPPublisher extends EventEmitter {
         ]);
 
         this.publishStream.send(VIDEO_MESSAGE, videoTag);
-        console.log('已发送 AVC 序列头');
+        log.info('已发送 AVC 序列头');
     }
 
     /**
@@ -565,7 +568,7 @@ class RTMPPublisher extends EventEmitter {
         ]);
 
         this.publishStream.send(VIDEO_MESSAGE, videoTag, 0);
-        console.log('已发送 AVC 配置');
+        log.info('已发送 AVC 配置');
     }
 
     /**
@@ -590,7 +593,7 @@ class RTMPPublisher extends EventEmitter {
         ]);
 
         this.publishStream.send(DATA_MESSAGE_AMF0, metadataBuffer, 0);
-        console.log('已发送自定义元数据');
+        log.info('已发送自定义元数据');
     }
 
     /**
@@ -610,7 +613,7 @@ class RTMPPublisher extends EventEmitter {
         ]);
 
         this.publishStream.send(AUDIO_MESSAGE, audioTag, 0);
-        console.log('已发送 AAC 序列头');
+        log.info('已发送 AAC 序列头');
     }
 
     /**
@@ -712,7 +715,7 @@ class RTMPPublisher extends EventEmitter {
             actualTimestamp = 0;
             this.audioSent = true;
             this.lastAudioTimestamp = 0;
-            console.log(`发送第一帧随机音频数据 (timestamp=0, size=${audioTag.length})`);
+            log.info(`发送第一帧随机音频数据 (timestamp=0, size=${audioTag.length})`);
         } else {
             // 时间戳增量：23ms (44.1kHz采样率，每帧约1024样本)
             actualTimestamp = 23;
@@ -755,7 +758,7 @@ class RTMPPublisher extends EventEmitter {
             actualTimestamp = 0;
             this.videoSent = true;
             this.lastVideoTimestamp = 0;
-            console.log(`发送第一帧随机视频数据 (timestamp=0, keyframe=${isKeyframe}, size=${videoTag.length})`);
+            log.info(`发送第一帧随机视频数据 (timestamp=0, keyframe=${isKeyframe}, size=${videoTag.length})`);
         } else {
             // 时间戳增量：33ms (30fps)
             actualTimestamp = 33;
@@ -781,17 +784,17 @@ class RTMPPublisher extends EventEmitter {
         if (this.isReconnecting) {
             this.isReconnecting = false;
             this.reconnectAttempts = 0;
-            console.log('重连成功，恢复推流！');
+            log.info('重连成功，恢复推流！');
             this.emit('reconnected');
         }
 
-        console.log('开始推送随机音视频数据...');
-        console.log(`Stream ID: ${this.streamId}`);
+        log.info('开始推送随机音视频数据...');
+        log.info(`Stream ID: ${this.streamId}`);
 
         // 先发送元数据
-        console.log('发送 onMetaData...');
+        log.info('发送 onMetaData...');
         this.sendMetaData();
-        console.log('onMetaData 发送成功，等待1秒后开始推流音视频数据...');
+        log.info('onMetaData 发送成功，等待1秒后开始推流音视频数据...');
 
         // 等待1秒后开始推流
         setTimeout(() => {
@@ -806,10 +809,10 @@ class RTMPPublisher extends EventEmitter {
                     
                     frameCount++;
                     if (frameCount % 10 === 0) {
-                        console.log(`已推流 ${frameCount} 帧`);
+                        log.info(`已推流 ${frameCount} 帧`);
                     }
                 } catch (error) {
-                    console.error('发送音视频数据失败:', error);
+                    log.error('发送音视频数据失败:', error);
                     this.stopRandomStreaming();
                 }
             }, 1000); // 每秒发送一次
@@ -823,7 +826,7 @@ class RTMPPublisher extends EventEmitter {
         if (this._streamingInterval) {
             clearInterval(this._streamingInterval);
             this._streamingInterval = null;
-            console.log('已停止推送随机音视频数据');
+            log.info('已停止推送随机音视频数据');
         }
         // 重置状态
         this.audioSent = false;
@@ -838,19 +841,19 @@ class RTMPPublisher extends EventEmitter {
      * @param {number} fps - 帧率，默认30fps
      */
     startSendingTestVideo(duration = 5, fps = 30) {
-        console.log('startSendingTestVideo被调用');
+        log.info('startSendingTestVideo被调用');
         if (!this.publishStream) {
-            console.error('publishStream不可用');
+            log.error('publishStream不可用');
             throw new Error('publishStream不可用，请先完成publish');
         }
 
-        console.log(`\n开始发送测试视频数据，持续${duration}秒，帧率${fps}fps...`);
+        log.info(`\n开始发送测试视频数据，持续${duration}秒，帧率${fps}fps...`);
 
         // 先发送元数据
         try {
             this.sendMetaData();
         } catch (error) {
-            console.error('发送元数据失败:', error);
+            log.error('发送元数据失败:', error);
             throw error;
         }
 
@@ -861,7 +864,7 @@ class RTMPPublisher extends EventEmitter {
 
         const sendFrame = () => {
             if (frameCount >= maxFrames) {
-                console.log(`\n已发送${frameCount}帧测试视频数据`);
+                log.info(`\n已发送${frameCount}帧测试视频数据`);
                 return;
             }
 
@@ -872,7 +875,7 @@ class RTMPPublisher extends EventEmitter {
                 // 继续发送下一帧
                 setTimeout(sendFrame, frameInterval);
             } catch (error) {
-                console.error('发送视频帧失败:', error);
+                log.error('发送视频帧失败:', error);
             }
         };
 
@@ -886,23 +889,23 @@ class RTMPPublisher extends EventEmitter {
     handleControlMessage(messageTypeId, value, limitType) {
         switch (messageTypeId) {
             case WINDOW_ACKNOWLEDGEMENT_SIZE:
-                console.log(`收到Window Acknowledgement Size: ${value}`);
+                log.info(`收到Window Acknowledgement Size: ${value}`);
                 // 记录窗口大小，但不需要立即响应
                 this.windowAckSize = value;
                 this.bytesReceived = 0;
                 break;
             case SET_PEER_BANDWIDTH:
-                console.log(`收到Set Peer Bandwidth: ${value}, limitType: ${limitType}`);
+                log.info(`收到Set Peer Bandwidth: ${value}, limitType: ${limitType}`);
                 // 如果limitType是2，需要发送Window Acknowledgement Size响应
                 if (limitType === 2 && this.windowAckSize) {
                     this.sendWindowAckSize(this.windowAckSize);
                 }
                 break;
             case SET_CHUNK_SIZE:
-                console.log(`服务器设置Chunk Size: ${value}`);
+                log.info(`服务器设置Chunk Size: ${value}`);
                 break;
             default:
-                console.log(`未知控制消息类型: ${messageTypeId}, 值: ${value}`);
+                log.info(`未知控制消息类型: ${messageTypeId}, 值: ${value}`);
         }
     }
 
@@ -914,7 +917,7 @@ class RTMPPublisher extends EventEmitter {
             const buffer = Buffer.allocUnsafe(4);
             buffer.writeUInt32BE(size, 0);
             this.client.controlStream.send(WINDOW_ACKNOWLEDGEMENT_SIZE, buffer);
-            console.log(`发送Window Acknowledgement Size响应: ${size}`);
+            log.info(`发送Window Acknowledgement Size响应: ${size}`);
         }
     }
 
@@ -922,15 +925,15 @@ class RTMPPublisher extends EventEmitter {
      * 处理服务器命令
      */
     handleCommand(name, transactionId, command, ...args) {
-        console.log(`收到服务器命令: ${name}`, { transactionId, command, args: args.length > 0 ? args : '无参数' });
+        log.info(`收到服务器命令: ${name}`, { transactionId, command, args: args.length > 0 ? args : '无参数' });
 
         if (name === 'onStatus') {
             const statusInfo = args[0];
             if (statusInfo) {
-                console.log('状态信息:', JSON.stringify(statusInfo, null, 2));
+                log.info('状态信息:', JSON.stringify(statusInfo, null, 2));
                 // 检查是否是错误状态
                 if (statusInfo.level === 'error' || statusInfo.code && statusInfo.code.includes('Failed')) {
-                    console.error('收到错误状态:', statusInfo);
+                    log.error('收到错误状态:', statusInfo);
                     this.emit('error', new Error(statusInfo.description || statusInfo.code));
                 }
                 if (statusInfo.code === 'NetStream.Publish.Start') {
@@ -939,7 +942,7 @@ class RTMPPublisher extends EventEmitter {
                 this.emit('status', statusInfo);
             }
         } else if (name === '_error') {
-            console.error('收到_error命令:', args);
+            log.error('收到_error命令:', args);
             const errorInfo = args[0] || {};
             this.emit('error', new Error(errorInfo.description || errorInfo.code || '服务器返回错误'));
         }
@@ -980,17 +983,17 @@ class RTMPPublisher extends EventEmitter {
      */
     async _tryReconnect() {
         if (!this.reconnectEnabled || !this.shouldReconnect) {
-            console.log('重连已禁用');
+            log.info('重连已禁用');
             return;
         }
 
         if (this.isReconnecting) {
-            console.log('已经在重连中，跳过');
+            log.info('已经在重连中，跳过');
             return;
         }
 
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            console.error(`已达到最大重连次数 (${this.maxReconnectAttempts})，停止重连`);
+            log.error(`已达到最大重连次数 (${this.maxReconnectAttempts})，停止重连`);
             this.emit('reconnectFailed', { attempts: this.reconnectAttempts });
             return;
         }
@@ -998,10 +1001,10 @@ class RTMPPublisher extends EventEmitter {
         this.isReconnecting = true;
         this.reconnectAttempts++;
         
-        console.log(`\n========================================`);
-        console.log(`开始第 ${this.reconnectAttempts}/${this.maxReconnectAttempts} 次重连...`);
-        console.log(`等待 ${this.reconnectInterval / 1000} 秒后重连...`);
-        console.log(`========================================\n`);
+        log.info(`\n========================================`);
+        log.info(`开始第 ${this.reconnectAttempts}/${this.maxReconnectAttempts} 次重连...`);
+        log.info(`等待 ${this.reconnectInterval / 1000} 秒后重连...`);
+        log.info(`========================================\n`);
 
         this.emit('reconnecting', { 
             attempt: this.reconnectAttempts, 
@@ -1013,7 +1016,7 @@ class RTMPPublisher extends EventEmitter {
         await new Promise(resolve => setTimeout(resolve, this.reconnectInterval));
 
         if (!this.shouldReconnect) {
-            console.log('重连已被取消');
+            log.info('重连已被取消');
             this.isReconnecting = false;
             return;
         }
@@ -1023,15 +1026,15 @@ class RTMPPublisher extends EventEmitter {
             this._resetState();
 
             // 重新连接
-            console.log('正在重新连接...');
+            log.info('正在重新连接...');
             await this.connect(this._rtmpUrl, this._connectOptions);
             
             // 连接成功，等待 publishStart 事件后再恢复推流
             // publishStart 事件会在 sendPublish 的回调中触发
-            console.log('重连成功！等待推流就绪...');
+            log.info('重连成功！等待推流就绪...');
             
         } catch (error) {
-            console.error('重连失败:', error.message);
+            log.error('重连失败:', error.message);
             this.isReconnecting = false;
             
             // 继续尝试重连
@@ -1047,7 +1050,7 @@ class RTMPPublisher extends EventEmitter {
      * 重连成功后恢复推流
      */
     _onReconnectSuccess() {
-        console.log('重连成功！');
+        log.info('重连成功！');
         this.isReconnecting = false;
         this.reconnectAttempts = 0; // 重置重连计数
 
@@ -1055,10 +1058,10 @@ class RTMPPublisher extends EventEmitter {
 
         // 恢复推流
         if (this._streamingMode === 'random') {
-            console.log('恢复随机数据推流...');
+            log.info('恢复随机数据推流...');
             this.startRandomStreaming();
         } else if (this._streamingMode === 'custom' && this._customStreamingCallback) {
-            console.log('恢复自定义推流...');
+            log.info('恢复自定义推流...');
             this._customStreamingCallback();
         }
     }
@@ -1079,7 +1082,7 @@ class RTMPPublisher extends EventEmitter {
     stopReconnect() {
         this.shouldReconnect = false;
         this.isReconnecting = false;
-        console.log('重连已停止');
+        log.info('重连已停止');
     }
 }
 
