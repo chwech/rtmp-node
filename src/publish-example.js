@@ -12,6 +12,140 @@ const log = createLogger("推流");
 // 全局变量，用于 SIGINT 处理
 let globalPublisher = null;
 
+// ========== 网络抖动模拟配置 ==========
+const JITTER_CONFIG = {
+  enabled: true,              // 是否启用网络抖动模拟
+  minDelay: 0,                // 最小延迟（毫秒）
+  maxDelay: 100,              // 最大延迟（毫秒）
+  burstProbability: 0.1,      // 突发发送的概率（累积多帧后一次性发送）
+  burstMaxFrames: 5,          // 突发发送时最多累积的帧数
+  pauseProbability: 0.05,     // 暂停的概率（模拟网络卡顿）
+  pauseMinDuration: 200,      // 暂停最小时长（毫秒）
+  pauseMaxDuration: 800,      // 暂停最大时长（毫秒）
+  logJitter: true,            // 是否输出抖动日志
+};
+
+// 帧缓冲区（用于突发发送模式）
+let videoFrameBuffer = [];
+let audioFrameBuffer = [];
+let isBurstMode = false;
+let isPaused = false;
+
+/**
+ * 生成随机延迟
+ */
+function getRandomDelay() {
+  return Math.random() * (JITTER_CONFIG.maxDelay - JITTER_CONFIG.minDelay) + JITTER_CONFIG.minDelay;
+}
+
+/**
+ * 生成随机暂停时长
+ */
+function getRandomPauseDuration() {
+  return Math.random() * (JITTER_CONFIG.pauseMaxDuration - JITTER_CONFIG.pauseMinDuration) + JITTER_CONFIG.pauseMinDuration;
+}
+
+/**
+ * 延迟执行
+ */
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 带抖动的发送视频帧
+ */
+async function sendVideoFrameWithJitter(publisher, videoTag, isKeyframe, timestamp) {
+  if (!JITTER_CONFIG.enabled) {
+    publisher.sendFLVVideoFrame(videoTag, isKeyframe, timestamp);
+    return;
+  }
+
+  // 随机决定是否进入暂停模式
+  if (!isPaused && Math.random() < JITTER_CONFIG.pauseProbability) {
+    isPaused = true;
+    const pauseDuration = getRandomPauseDuration();
+    if (JITTER_CONFIG.logJitter) {
+      log.warn(`[抖动] 网络卡顿模拟，暂停 ${Math.round(pauseDuration)}ms`);
+    }
+    await delay(pauseDuration);
+    isPaused = false;
+  }
+
+  // 随机决定是否进入突发模式（累积帧）
+  if (!isBurstMode && Math.random() < JITTER_CONFIG.burstProbability) {
+    isBurstMode = true;
+    videoFrameBuffer.push({ videoTag, isKeyframe, timestamp });
+    
+    if (JITTER_CONFIG.logJitter) {
+      log.info(`[抖动] 进入突发模式，累积帧...`);
+    }
+    return;
+  }
+
+  // 如果在突发模式中
+  if (isBurstMode) {
+    videoFrameBuffer.push({ videoTag, isKeyframe, timestamp });
+    
+    // 达到最大帧数或随机决定释放
+    if (videoFrameBuffer.length >= JITTER_CONFIG.burstMaxFrames || Math.random() > 0.7) {
+      if (JITTER_CONFIG.logJitter) {
+        log.info(`[抖动] 突发发送 ${videoFrameBuffer.length} 个视频帧`);
+      }
+      
+      // 快速发送所有缓冲的帧
+      for (const frame of videoFrameBuffer) {
+        publisher.sendFLVVideoFrame(frame.videoTag, frame.isKeyframe, frame.timestamp);
+      }
+      videoFrameBuffer = [];
+      isBurstMode = false;
+    }
+    return;
+  }
+
+  // 正常模式：添加随机延迟
+  const jitterDelay = getRandomDelay();
+  if (jitterDelay > 10 && JITTER_CONFIG.logJitter) {
+    log.debug(`[抖动] 视频帧延迟 ${Math.round(jitterDelay)}ms, ts=${timestamp}`);
+  }
+  await delay(jitterDelay);
+  publisher.sendFLVVideoFrame(videoTag, isKeyframe, timestamp);
+}
+
+/**
+ * 带抖动的发送音频帧
+ */
+async function sendAudioFrameWithJitter(publisher, header, data, timestamp) {
+  if (!JITTER_CONFIG.enabled) {
+    publisher.sendAudioFrame(header, data, timestamp);
+    return;
+  }
+
+  // 如果视频在暂停，音频也暂停
+  if (isPaused) {
+    audioFrameBuffer.push({ header, data, timestamp });
+    return;
+  }
+
+  // 发送缓冲的音频帧
+  if (audioFrameBuffer.length > 0) {
+    if (JITTER_CONFIG.logJitter) {
+      log.info(`[抖动] 释放 ${audioFrameBuffer.length} 个缓冲音频帧`);
+    }
+    for (const frame of audioFrameBuffer) {
+      publisher.sendAudioFrame(frame.header, frame.data, frame.timestamp);
+    }
+    audioFrameBuffer = [];
+  }
+
+  // 音频帧添加较小的随机延迟（保持音频相对稳定）
+  const jitterDelay = getRandomDelay() * 0.5;
+  if (jitterDelay > 5) {
+    await delay(jitterDelay);
+  }
+  publisher.sendAudioFrame(header, data, timestamp);
+}
+
 // 获取 home 目录下的 .rtmp_node/mp4 目录
 const rtmpNodeDir = path.join(os.homedir(), ".rtmp_node");
 const mp4Dir = path.join(rtmpNodeDir, "mp4");
@@ -79,6 +213,21 @@ async function main() {
     await waitAndExit(1);
   }
 
+  // 询问是否启用网络抖动模拟
+  const enableJitter = await prompt("是否启用网络抖动模拟？(y/n, 默认n): ");
+  JITTER_CONFIG.enabled = enableJitter.toLowerCase() === 'y' || enableJitter.toLowerCase() === 'yes';
+  
+  if (JITTER_CONFIG.enabled) {
+    log.info("网络抖动模拟已启用！");
+    log.info("抖动配置:");
+    log.info(`  - 延迟范围: ${JITTER_CONFIG.minDelay}ms ~ ${JITTER_CONFIG.maxDelay}ms`);
+    log.info(`  - 突发概率: ${(JITTER_CONFIG.burstProbability * 100).toFixed(0)}%`);
+    log.info(`  - 暂停概率: ${(JITTER_CONFIG.pauseProbability * 100).toFixed(0)}%`);
+    log.info(`  - 暂停时长: ${JITTER_CONFIG.pauseMinDuration}ms ~ ${JITTER_CONFIG.pauseMaxDuration}ms`);
+  } else {
+    log.info("网络抖动模拟已禁用，将使用稳定帧间隔推流");
+  }
+
   // 创建 RTMPPublisher，配置重连参数
   const publisher = new RTMPPublisher({
     reconnect: true, // 启用重连
@@ -103,7 +252,7 @@ async function main() {
   });
 
   // 监听视频帧
-  mp4Reader.on("videoFrame", (frame) => {
+  mp4Reader.on("videoFrame", async (frame) => {
     if (!publisher.publishStream) return;
 
     try {
@@ -119,9 +268,10 @@ async function main() {
         frame.data,
       ]);
 
-      // 传递时间戳
+      // 传递时间戳（使用带抖动的发送函数）
       if (!frame.isKeyframe) {
-        publisher.sendFLVVideoFrame(
+        await sendVideoFrameWithJitter(
+          publisher,
           videoTag,
           frame.isKeyframe,
           frame.timestamp
@@ -147,12 +297,12 @@ async function main() {
   });
 
   // 监听音频帧
-  mp4Reader.on("audioFrame", (frame) => {
+  mp4Reader.on("audioFrame", async (frame) => {
     if (!publisher.publishStream) return;
 
     try {
-      // 传递时间戳
-      publisher.sendAudioFrame(frame.header, frame.data, frame.timestamp);
+      // 传递时间戳（使用带抖动的发送函数）
+      await sendAudioFrameWithJitter(publisher, frame.header, frame.data, frame.timestamp);
       audioFrameCount++;
     } catch (error) {
       log.error("发送音频帧失败:", error);
